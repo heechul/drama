@@ -64,7 +64,9 @@ const char *getCPUModel() {
     FILE *f = fopen("/proc/cpuinfo", "r");
     while (getline(&buffer, &n, f)) {
         idx = 0;
-        if (strncmp(buffer, "model name", 10) == 0) {
+        if (strncmp(buffer, "Model", 5) == 0 || 
+            strncmp(buffer, "model name", 10) == 0) 
+	{
             while (buffer[idx] != ':')
                 idx++;
             idx += 2;
@@ -138,21 +140,45 @@ long utime() {
 
 
 // ----------------------------------------------
+
+#if defined(__aarch64__)
+static volatile uint64_t counter = 0;
+static pthread_t count_thread;
+
+static void *countthread(void *dummy) {
+  uint64_t local_counter = 0;
+  while (1) {
+    local_counter++;
+    counter = local_counter;
+  }
+  return NULL;
+}
+#endif
+
 uint64_t rdtsc() {
+#if defined(__aarch64__)
+    asm volatile ("DSB SY");	
+    return counter;
+#else    
     uint64_t a, d;
     asm volatile ("xor %%rax, %%rax\n" "cpuid"::: "rax", "rbx", "rcx", "rdx");
     asm volatile ("rdtscp" : "=a" (a), "=d" (d) : : "rcx");
     a = (d << 32) | a;
     return a;
+#endif
 }
 
 // ----------------------------------------------
 uint64_t rdtsc2() {
+#if defined(__aarch64__)
+    return rdtsc();
+#else
     uint64_t a, d;
     asm volatile ("rdtscp" : "=a" (a), "=d" (d) : : "rcx");
     asm volatile ("cpuid"::: "rax", "rbx", "rcx", "rdx");
     a = (d << 32) | a;
     return a;
+#endif
 }
 
 
@@ -174,14 +200,25 @@ uint64_t getTiming(pointer first, pointer second) {
 
             *s;
             *(s + number_of_reads);
-
+#if defined(__aarch64__)
+            asm volatile ("DC CIVAC, %[ad]" : : [ad] "r" (f) : "memory");
+            asm volatile ("DC CIVAC, %[ad]" : : [ad] "r" (s) : "memory"); 
+#else
             asm volatile("clflush (%0)" : : "r" (f) : "memory");
             asm volatile("clflush (%0)" : : "r" (s) : "memory");
+#endif            
         }
 
         uint64_t res = (rdtsc2() - t0) / (num_reads);
+	if (res == 0) {
+            i--;	
+            continue;
+	}
+
+#if !defined(__aarch64__)
         for (int j = 0; j < 10; j++)
             sched_yield();
+#endif
         if (res < min_res)
             min_res = res;
     }
@@ -333,6 +370,7 @@ int main(int argc, char *argv[]) {
     std::map<int, std::list<addrpair> > timing;
     size_t hist[MAX_HIST_SIZE];
     int c;
+
     
     while ((c = getopt(argc, argv, "p:n:s:")) != EOF) {
         switch (c) {
@@ -371,6 +409,7 @@ int main(int argc, char *argv[]) {
 
     logInfo("Mapping has %zu MB\n", mapping_size / 1024 / 1024);
 
+
     pointer first, second;
     pointer first_phys, second_phys;
     pointer base, base_phys;
@@ -396,6 +435,18 @@ int main(int argc, char *argv[]) {
 
     setpriority(PRIO_PROCESS, 0, -20);
 
+#if defined(__aarch64__)
+    int rr = pthread_create(&count_thread, 0, countthread , 0);
+    if (rr != 0) {
+      return -1;
+    }
+    logDebug("%s\n", "Waiting the counter thread...");
+    while(counter == 0) {
+      asm volatile("DSB SY");
+    }
+    logDebug("Done: %ld\n", counter);    
+#endif
+    
     int failed;
     while (found_sets < expected_sets) {
         for (size_t i = 0; i < MAX_HIST_SIZE; ++i)
