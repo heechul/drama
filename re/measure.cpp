@@ -182,16 +182,28 @@ uint64_t rdtsc2() {
 }
 
 
+#define NUM_MEASURE 5 // 4 was original
+size_t low_thresh = 0, high_thresh = WINT_MAX;
+
+static int comparator(const void *p, const void *q)
+{
+  return *(int *)p > *(int *)q;
+}
+
 // ----------------------------------------------
 uint64_t getTiming(pointer first, pointer second) {
     size_t min_res = (-1ull);
-    for (int i = 0; i < 4; i++) {
+    size_t ticks[NUM_MEASURE];
+    
+    for (int i = 0; i < NUM_MEASURE; i++) {
         size_t number_of_reads = num_reads;
         volatile size_t *f = (volatile size_t *) first;
         volatile size_t *s = (volatile size_t *) second;
 
+#if !defined(__aarch64__)	
         for (int j = 0; j < 10; j++)
             sched_yield();
+#endif	
         size_t t0 = rdtsc();
 
         while (number_of_reads-- > 0) {
@@ -210,18 +222,35 @@ uint64_t getTiming(pointer first, pointer second) {
         }
 
         uint64_t res = (rdtsc2() - t0) / (num_reads);
-	if (res == 0) {
+
+#if defined(__aarch64__)	
+	ticks[i] = res;
+	if (res <= low_thresh || res > high_thresh) {
             i--;	
             continue;
 	}
-
-#if !defined(__aarch64__)
+	// printf("%ld\n", res);
+#else
         for (int j = 0; j < 10; j++)
             sched_yield();
-#endif
         if (res < min_res)
             min_res = res;
+#endif
     }
+
+#if defined(__aarch64__)    
+    qsort((void *)ticks, NUM_MEASURE, sizeof(ticks[0]), comparator);	
+
+#if 0    
+    if (low_thresh == 0)
+      low_thresh = ticks[NUM_MEASURE*1/10];
+    if (high_thresh == WINT_MAX)
+      high_thresh = ticks[NUM_MEASURE*9/10];
+#endif
+    
+    min_res = ticks[NUM_MEASURE/2];
+#endif
+    
     return min_res;
 }
 
@@ -574,12 +603,16 @@ int main(int argc, char *argv[]) {
 
         }
 
+	logDebug("found: %d. newset_sz: %lu pool_sz: %lu\n", found, new_set.size(), addr_pool.size());
+	    
         if (new_set.size() <= 1) {
             logWarning("Set must be wrong, contains too few addresses (%lu). Try again...\n", new_set.size());
             goto search_set;
         }
         if (new_set.size() > addr_pool.size() / expected_sets) {
-            logWarning("%s\n", "Set must be wrong, contains too many addresses. Try again...");
+	    logWarning("Set must be wrong, contains too many addresses (%lu). Try again...\n",
+		       new_set.size());
+
             goto search_set;
         }
 
