@@ -548,6 +548,7 @@ int main(int argc, char *argv[]) {
         int max = 0;
         int max_v = 0;
         for (hit = timing.begin(); hit != timing.end(); hit++) {
+	    assert(hit->first < MAX_HIST_SIZE);
             hist[hit->first] = hit->second.size();
             if (hit->first > max)
                 max = hit->first;
@@ -768,7 +769,7 @@ int main(int argc, char *argv[]) {
 
     // display found functions
     for (int bits = 1; bits <= MAX_XOR_BITS; bits++) {
-	printf("Bits: %d, sz=%d\n", bits, functions[bits].size());
+	printf("Bits: %d, sz=%d\n", bits, (int)functions[bits].size());
 	
         for (int i = 0; i < functions[bits].size(); i++) {
             bool show = true;
