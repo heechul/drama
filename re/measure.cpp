@@ -22,7 +22,7 @@
 #include <sstream>
 #include <iterator>
 #include <math.h>
-
+#include <signal.h>
 #include "measure.h"
 
 // ------------ global settings ----------------
@@ -233,6 +233,7 @@ uint64_t getTiming(pointer first, pointer second) {
 #else
         for (int j = 0; j < 10; j++)
             sched_yield();
+	
         if (res < min_res)
             min_res = res;
 #endif
@@ -425,7 +426,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    tries = expected_sets * 125;
+    tries = expected_sets * 250; // DEBUG: original 125.
 
     logDebug("CPU: %s\n", getCPUModel());
     logDebug("Memory percentage: %f\n", fraction_of_physical_memory);
@@ -767,8 +768,9 @@ int main(int argc, char *argv[]) {
 
     // display found functions
     for (int bits = 1; bits <= MAX_XOR_BITS; bits++) {
+	printf("Bits: %d, sz=%d\n", bits, functions[bits].size());
+	
         for (int i = 0; i < functions[bits].size(); i++) {
-
             bool show = true;
             for (int fp = 0; fp < false_positives.size(); fp++) {
                 if ((functions[bits][i] & false_positives[fp]) == false_positives[fp]) {
@@ -791,6 +793,12 @@ int main(int argc, char *argv[]) {
         }
     }
 
+#if defined(__aarch64__)
+    pthread_kill(rr, SIGKILL);
+#endif
+    
+    fprintf(stderr, "Finishing\n");
+    exit(1);
     return 0;
 
 }
