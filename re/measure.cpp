@@ -490,7 +490,7 @@ int main(int argc, char *argv[]) {
         }
         logInfo("Searching for set %d (try %d)\n", found_sets + 1, failed);
         timing.clear();
-        remaining_tries = tries;
+        remaining_tries = tries; // addr_pool.size();? 
 
         // measure access times
         sched_yield();
@@ -605,7 +605,8 @@ int main(int argc, char *argv[]) {
 
         }
 
-	logDebug("found: %d. newset_sz: %lu pool_sz: %lu\n", found, new_set.size(), addr_pool.size());
+	logDebug("found(cycles): %d newset_sz: %lu pool_sz: %lu\n",
+                 found, new_set.size(), addr_pool.size());
 	    
         if (new_set.size() <= 1) {
             logWarning("Set must be wrong, contains too few addresses (%lu). Try again...\n", new_set.size());
@@ -794,9 +795,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-#if defined(__aarch64__)
-    pthread_kill(rr, SIGKILL);
-#endif
     
     fprintf(stderr, "Finishing\n");
     exit(1);
