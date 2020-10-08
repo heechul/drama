@@ -29,13 +29,13 @@
 int verbosity = 4;
 
 // default values
-size_t num_reads = 5000;
+size_t num_reads = 10;
 double fraction_of_physical_memory = 0.6;
 size_t expected_sets = 8;
 
-#define POINTER_SIZE       (sizeof(void*) * 8)
-#define ADDRESS_ALIGNMENT  6
-#define MAX_XOR_BITS       7
+#define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
+#define ADDRESS_ALIGNMENT  11   // orig: 6 
+#define MAX_XOR_BITS       5    // orig: 7
 // ----------------------------------------------
 
 #define ETA_BUFFER 5
@@ -182,7 +182,7 @@ uint64_t rdtsc2() {
 }
 
 
-#define NUM_MEASURE 5 // 4 was original
+#define NUM_MEASURE 1000 // 4 was original
 size_t low_thresh = 0, high_thresh = WINT_MAX;
 
 static int comparator(const void *p, const void *q)
@@ -194,7 +194,7 @@ static int comparator(const void *p, const void *q)
 uint64_t getTiming(pointer first, pointer second) {
     size_t min_res = (-1ull);
     size_t ticks[NUM_MEASURE];
-    
+
     for (int i = 0; i < NUM_MEASURE; i++) {
         size_t number_of_reads = num_reads;
         volatile size_t *f = (volatile size_t *) first;
@@ -207,6 +207,17 @@ uint64_t getTiming(pointer first, pointer second) {
         size_t t0 = rdtsc();
 
         while (number_of_reads-- > 0) {
+#if 1 // fgpu method
+            asm volatile (
+                        "DSB SY\n"
+                        "LDR X5, [%[ad1]]\n"
+                        "LDR X6, [%[ad2]]\n"
+                        "ADD %[out], X5, X6\n"
+                        "DC CIVAC, %[ad1]\n"
+                        "DC CIVAC, %[ad2]\n"
+                        "DSB SY\n"
+                        : [out] "=r" (min_res) : [ad1] "r" (f), [ad2] "r" (s) : "x5", "x6");
+#else // drama method          
             *f;
             *(f + number_of_reads);
 
@@ -218,7 +229,8 @@ uint64_t getTiming(pointer first, pointer second) {
 #else
             asm volatile("clflush (%0)" : : "r" (f) : "memory");
             asm volatile("clflush (%0)" : : "r" (s) : "memory");
-#endif            
+#endif
+#endif // fgpu or drama method
         }
 
         uint64_t res = (rdtsc2() - t0) / (num_reads);
@@ -426,7 +438,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    tries = expected_sets * 250; // DEBUG: original 125.
+    tries = expected_sets * 125; // DEBUG: original 125.
 
     logDebug("CPU: %s\n", getCPUModel());
     logDebug("Memory percentage: %f\n", fraction_of_physical_memory);
@@ -661,7 +673,7 @@ int main(int argc, char *argv[]) {
             if (prob[bits][j] <= 0.01 || prob[bits][j] >= 0.99) {
                 // false positives, this bits are always 0 or 1
                 false_positives.push_back(functions[bits][j]);
-                //logDebug("False positive function: %s\n", name_bits(functions[bits][j]));
+                logDebug("False positive function: %s\n", name_bits(functions[bits][j]));
             }
         }
     }
