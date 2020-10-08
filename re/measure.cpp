@@ -23,6 +23,7 @@
 #include <iterator>
 #include <math.h>
 #include <signal.h>
+#include <sys/ioctl.h>
 #include "measure.h"
 
 // ------------ global settings ----------------
@@ -35,7 +36,7 @@ size_t expected_sets = 8;
 
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
 #define ADDRESS_ALIGNMENT  11   // orig: 6 
-#define MAX_XOR_BITS       5    // orig: 7
+#define MAX_XOR_BITS       2    // orig: 7
 #define NUM_MEASURE        100  // orig: 4
 // ----------------------------------------------
 
@@ -84,6 +85,53 @@ const char *getCPUModel() {
 }
 
 // ----------------------------------------------
+#define KERNEL_ALLOCATOR_MODULE 1
+#if KERNEL_ALLOCATOR_MODULE==1
+
+uint64_t phy_start_addr;
+
+void setupMapping() {
+    int fd = open("/dev/kam", O_RDWR);
+    if (fd < 0) {
+        fprintf(stderr, "Couldn't open device file\n");
+        exit(1);
+    }
+
+    mapping_size = 1<<23;
+    mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
+            MAP_SHARED, fd, 0);
+
+    /* We don't close the file. We let it close when exit */
+    if (mapping == MAP_FAILED) {
+        perror("Couldn't allocate memory from device\n");
+        exit(2);
+    }
+
+    // Get the physcal address of start address
+    int iret = ioctl(fd, 0, &phy_start_addr);
+    if (iret < 0) {
+        perror("Couldn't find the physical address of start\n");
+        exit(3);
+    }
+    
+    // *(int *)ret = 0x12345678;
+    logDebug("Value [%p]=%x\n", mapping, *(int *)mapping);
+    
+    logDebug("%s", "Initialize large memory block...\n");
+    for (size_t index = 0; index < mapping_size; index += 0x1000) {
+        pointer *temporary =
+                reinterpret_cast<pointer *>(static_cast<uint8_t *>(mapping)
+                                            + index);
+        temporary[0] = index;
+    }
+    logDebug("%s", " done!\n");
+}
+
+pointer getPhysicalAddr(pointer virtual_addr) {
+    return (virtual_addr - (unsigned long int)mapping) + phy_start_addr;
+}
+
+#else
 void setupMapping() {
     mapping_size =
             static_cast<size_t>((static_cast<double>(getPhysicalMemorySize())
@@ -124,6 +172,8 @@ pointer getPhysicalAddr(pointer virtual_addr) {
     pointer frame_num = frameNumberFromPagemap(value);
     return (frame_num * 4096) | (virtual_addr & (4095));
 }
+#endif
+
 
 // ----------------------------------------------
 void initPagemap() {
@@ -348,7 +398,7 @@ std::vector <pointer> find_function(int bits, int pointer_bit, int align_bit) {
         std::set <pointer> set_func;
         unsigned int mask = start_mask;
 
-        //logDebug("Set %d...\n", set + 1);
+        logDebug("Set %d: 0x%lx count: %ld\n", set + 1, sets[set][0], sets[set].size());
         while (1) {
             if (sets[set].size() == 0) break;
             // check if mask produces same result for all addresses in set
@@ -399,7 +449,7 @@ std::vector<double> prob_function(std::vector <pointer> masks, int align_bit) {
             if (apply_bitmask(sets[set][0] >> align_bit, mask))
                 count++;
         }
-        //logDebug(" %.2f\n", (double) count / sets.size());
+        logDebug("%s: %.2f\n", name_bits(mask), (double) count / sets.size());
         prob.push_back((double) count / sets.size());
     }
     return prob;
@@ -465,7 +515,8 @@ int main(int argc, char *argv[]) {
     int time_valid = 0;
 
     int found_sets = 0;
-
+    int found_siblings = 0;
+    
     // choose a random base address
     getRandomAddress(&base, &base_phys);
 
@@ -503,14 +554,14 @@ int main(int argc, char *argv[]) {
         logInfo("Searching for set %d (try %d): base_phy=0x%lx\n",
                 found_sets + 1, failed, base_phys);
         timing.clear();
-        remaining_tries = tries; // addr_pool.size();? 
+        remaining_tries = tries;
 
         // measure access times
         sched_yield();
         std::set <addrpair> used_addr;
         used_addr.clear();
         while (--remaining_tries) {
-            sched_yield();
+            // sched_yield();
             time_start = utime();
 
             // get random address from address pool (prevents any prefetch or something)
@@ -520,9 +571,9 @@ int main(int argc, char *argv[]) {
             first_phys = pool_front->second;
 
             // measure timing
-            sched_yield();
+            // sched_yield();
             t = getTiming(base, first);
-            sched_yield();
+            // sched_yield();
             timing[t].push_back(std::make_pair(base_phys, first_phys));
 
             times[time_ptr] = utime() - time_start;
@@ -532,7 +583,7 @@ int main(int argc, char *argv[]) {
                 time_valid = 1;
             }
 
-            sched_yield();
+            // sched_yield();
             clearLine();
             if (time_valid) {
                 long mean = 0;
@@ -648,7 +699,8 @@ int main(int argc, char *argv[]) {
 
         // save identified set if one was found
         sets.push_back(new_set);
-
+        found_siblings += new_set.size();
+        
         // choose base address from remaining addresses
         auto ait = addr_pool.begin();
         std::advance(ait, rand() % addr_pool.size());
@@ -657,8 +709,8 @@ int main(int argc, char *argv[]) {
 
         found_sets++;
     }
-    logDebug("%s\n", "done measuring");
-
+    logDebug("Done measuring. found_sets: %d found_siblings: %d\n",
+             found_sets, found_siblings);
 
     // try to find a xor function
     std::map<int, std::vector<double> > prob;
@@ -674,7 +726,7 @@ int main(int argc, char *argv[]) {
             if (prob[bits][j] <= 0.01 || prob[bits][j] >= 0.99) {
                 // false positives, this bits are always 0 or 1
                 false_positives.push_back(functions[bits][j]);
-                logDebug("False positive function: %s\n", name_bits(functions[bits][j]));
+                // logDebug("False positive function: %s\n", name_bits(functions[bits][j]));
             }
         }
     }
