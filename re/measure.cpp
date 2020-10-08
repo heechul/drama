@@ -446,7 +446,7 @@ std::vector<double> prob_function(std::vector <pointer> masks, int align_bit) {
         int count = 0;
         for (int set = 0; set < sets.size(); set++) {
             if (sets[set].size() == 0) continue;
-            if (apply_bitmask(sets[set][0] >> align_bit, mask))
+            if (apply_bitmask(sets[set][0], mask)) // << BUG FIX
                 count++;
         }
         logDebug("%s: %.2f\n", name_bits(mask), (double) count / sets.size());
