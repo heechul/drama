@@ -36,6 +36,7 @@ size_t expected_sets = 8;
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
 #define ADDRESS_ALIGNMENT  11   // orig: 6 
 #define MAX_XOR_BITS       5    // orig: 7
+#define NUM_MEASURE        100  // orig: 4
 // ----------------------------------------------
 
 #define ETA_BUFFER 5
@@ -182,7 +183,6 @@ uint64_t rdtsc2() {
 }
 
 
-#define NUM_MEASURE 1000 // 4 was original
 size_t low_thresh = 0, high_thresh = WINT_MAX;
 
 static int comparator(const void *p, const void *q)
@@ -500,7 +500,8 @@ int main(int argc, char *argv[]) {
             logWarning("%s\n", "Couldn't find set after 10 tries, giving up, sorry!");
             break;
         }
-        logInfo("Searching for set %d (try %d)\n", found_sets + 1, failed);
+        logInfo("Searching for set %d (try %d): base_phy=0x%lx\n",
+                found_sets + 1, failed, base_phys);
         timing.clear();
         remaining_tries = tries; // addr_pool.size();? 
 
