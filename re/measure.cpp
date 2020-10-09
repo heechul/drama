@@ -41,7 +41,7 @@ size_t expected_sets = 8;
 
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
 #define ADDRESS_ALIGNMENT  11   // orig: 6 
-#define MAX_XOR_BITS       5    // orig: 7
+#define MAX_XOR_BITS       7    // orig: 7
 // ----------------------------------------------
 
 #define ETA_BUFFER 5
@@ -407,7 +407,7 @@ std::vector <pointer> find_function(int bits, int pointer_bit, int align_bit) {
         std::set <pointer> set_func;
         unsigned int mask = start_mask;
 
-        logDebug("Set %d: 0x%lx count: %ld\n", set + 1, sets[set][0], sets[set].size());
+        // logDebug("Set %d: 0x%lx count: %ld\n", set + 1, sets[set][0], sets[set].size());
         while (1) {
             if (sets[set].size() == 0) break;
             // check if mask produces same result for all addresses in set
@@ -458,7 +458,7 @@ std::vector<double> prob_function(std::vector <pointer> masks, int align_bit) {
             if (apply_bitmask(sets[set][0], mask)) // << BUG FIX
                 count++;
         }
-        logDebug("%s: %.2f\n", name_bits(mask), (double) count / sets.size());
+        // logDebug("%s: %.2f\n", name_bits(mask), (double) count / sets.size());
         prob.push_back((double) count / sets.size());
     }
     return prob;
@@ -559,6 +559,13 @@ int main(int argc, char *argv[]) {
     }
     logDebug("Done: %ld\n", counter);    
 #endif
+
+
+    t = getTiming(base, second);    
+    low_thresh = t * 0.5;
+    high_thresh = t * 5;
+    logInfo("Average cycles: %ld  low_threshold: %ld high_treshold: %ld\n",
+            t, low_thresh, high_thresh);
     
     int failed;
     while (found_sets < expected_sets) {
@@ -735,6 +742,10 @@ int main(int argc, char *argv[]) {
     logDebug("Done measuring. found_sets: %d found_siblings: %d\n",
              found_sets, found_siblings);
 
+    for (int set = 0; set < sets.size(); set++) {
+        logInfo("Set %d: 0x%lx count: %ld\n", set + 1, sets[set][0], sets[set].size());
+    }
+    
     // try to find a xor function
     std::map<int, std::vector<double> > prob;
     for (int bits = 1; bits <= MAX_XOR_BITS; bits++) {
