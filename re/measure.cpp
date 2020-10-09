@@ -38,7 +38,7 @@ double fraction_of_physical_memory = 0.6;
 size_t expected_sets = 8;
 
 #define USE_LINEAR_ADDR    1    // require to load kam.ko (github.com/heechul/bank_test)
-
+#define LINEAR_MAP_SIZE    (1<<23)
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
 #define ADDRESS_ALIGNMENT  11   // orig: 6 
 #define MAX_XOR_BITS       7    // orig: 7
@@ -100,7 +100,7 @@ void setupMapping() {
         exit(1);
     }
 
-    mapping_size = 1<<23;
+    mapping_size = LINEAR_MAP_SIZE;
     mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
             MAP_SHARED, fd, 0);
 
