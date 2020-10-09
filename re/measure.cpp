@@ -37,7 +37,7 @@ size_t num_reads = 10;
 double fraction_of_physical_memory = 0.6;
 size_t expected_sets = 8;
 
-#define USE_LINEAR_ADDR    1
+#define USE_LINEAR_ADDR    0
 
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
 #define ADDRESS_ALIGNMENT  11   // orig: 6 
@@ -496,7 +496,7 @@ int main(int argc, char *argv[]) {
                 break;
         }
     }
-    tries = expected_sets * 125; // DEBUG: original 125.
+    tries = expected_sets * 250; // DEBUG: original 125.
 
     logDebug("CPU: %s\n", getCPUModel());
     logDebug("Memory percentage: %f\n", fraction_of_physical_memory);
