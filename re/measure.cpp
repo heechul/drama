@@ -89,8 +89,7 @@ const char *getCPUModel() {
 }
 
 // ----------------------------------------------
-#define KERNEL_ALLOCATOR_MODULE 1
-#if KERNEL_ALLOCATOR_MODULE==1
+#if USE_LINEAR_ADDR==1
 
 uint64_t phy_start_addr;
 
@@ -502,11 +501,9 @@ int main(int argc, char *argv[]) {
                 break;
         }
     }
-#if USE_LINEAR_ADDR == 1
-    tries = expected_sets * 125; // DEBUG: original 125.
-#else
-    tries = expected_sets * 500; // DEBUG: original 125.
-#endif
+
+    tries = expected_sets * 250; // DEBUG: original 125.
+
     logDebug("CPU: %s\n", getCPUModel());
     logDebug("Memory percentage: %f\n", fraction_of_physical_memory);
     logDebug("Number of reads: %lu\n", num_reads);
