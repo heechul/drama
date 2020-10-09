@@ -197,14 +197,20 @@ long utime() {
 // ----------------------------------------------
 
 #if defined(__aarch64__)
+#define USE_FAST_COUNTER   1
+
 static volatile uint64_t counter = 0;
 static pthread_t count_thread;
 
 static void *countthread(void *dummy) {
   uint64_t local_counter = 0;
   while (1) {
+#if USE_FAST_COUNTER==1
     local_counter++;
     counter = local_counter;
+#else
+    counter++;
+#endif
   }
   return NULL;
 }
@@ -496,8 +502,11 @@ int main(int argc, char *argv[]) {
                 break;
         }
     }
-    tries = expected_sets * 250; // DEBUG: original 125.
-
+#if USE_LINEAR_ADDR == 1
+    tries = expected_sets * 125; // DEBUG: original 125.
+#else
+    tries = expected_sets * 500; // DEBUG: original 125.
+#endif
     logDebug("CPU: %s\n", getCPUModel());
     logDebug("Memory percentage: %f\n", fraction_of_physical_memory);
     logDebug("Number of reads: %lu\n", num_reads);
@@ -546,6 +555,8 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
+    logDebug("Address pool size: %lu\n", addr_pool.size());
+
     setpriority(PRIO_PROCESS, 0, -20);
 
 #if defined(__aarch64__)
@@ -563,7 +574,7 @@ int main(int argc, char *argv[]) {
 
     t = getTiming(base, second);    
     low_thresh = t * 0.5;
-    high_thresh = t * 5;
+    high_thresh = t * 20;
     logInfo("Average cycles: %ld  low_threshold: %ld high_treshold: %ld\n",
             t, low_thresh, high_thresh);
     
