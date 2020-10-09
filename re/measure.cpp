@@ -41,7 +41,7 @@ size_t expected_sets = 8;
 
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
 #define ADDRESS_ALIGNMENT  11   // orig: 6 
-#define MAX_XOR_BITS       1    // orig: 7
+#define MAX_XOR_BITS       5    // orig: 7
 // ----------------------------------------------
 
 #define ETA_BUFFER 5
