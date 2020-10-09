@@ -37,7 +37,7 @@ size_t num_reads = 10;
 double fraction_of_physical_memory = 0.6;
 size_t expected_sets = 8;
 
-#define USE_LINEAR_ADDR    0
+#define USE_LINEAR_ADDR    1    // require to load kam.ko (github.com/heechul/bank_test)
 
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
 #define ADDRESS_ALIGNMENT  11   // orig: 6 
@@ -45,7 +45,7 @@ size_t expected_sets = 8;
 // ----------------------------------------------
 
 #define ETA_BUFFER 5
-#define MAX_HIST_SIZE 1500
+#define MAX_HIST_SIZE 2000
 
 std::vector <std::vector<pointer>> sets;
 std::map<int, std::vector<pointer> > functions;
@@ -717,8 +717,8 @@ int main(int argc, char *argv[]) {
             }
         }
 
-	logDebug("found(cycles): %d newset_sz: %lu pool_sz: %lu\n",
-                 found, new_set.size(), addr_pool.size());
+	logDebug("found(cycles): %d newset_sz: %lu (expected_sz: %lu) pool_sz: %lu\n",
+                 found, new_set.size(), tries / expected_sets, addr_pool.size());
 
         // save identified set if one was found
         sets.push_back(new_set);
