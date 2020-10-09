@@ -719,7 +719,7 @@ int main(int argc, char *argv[]) {
 	logDebug("found(cycles): %d newset_sz: %lu (expected_sz: %lu) pool_sz: %lu\n",
                  found, new_set.size(), tries/expected_sets, addr_pool.size());
 
-        if (new_set.size() <= expected_sets * 110 / 100) {
+        if (new_set.size() <= expected_sets * 10 / 100) {
             logWarning("Set must be wrong, contains too few addresses (%lu). Try again...\n", new_set.size());
             goto search_set;
         }
