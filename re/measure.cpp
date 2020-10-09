@@ -31,7 +31,8 @@ int verbosity = 4;
 
 // default values
 size_t num_reads = 10;
-#define NUM_MEASURE        500  // orig: 4
+#define MAX_INNER_LOOP                  10
+#define MAX_OUTER_LOOP                  1000
 
 double fraction_of_physical_memory = 0.6;
 size_t expected_sets = 8;
@@ -246,14 +247,18 @@ static int comparator(const void *p, const void *q)
 // ----------------------------------------------
 uint64_t getTiming(pointer first, pointer second) {
     size_t min_res = (-1ull);
-    size_t ticks[NUM_MEASURE];
+    size_t ticks[MAX_OUTER_LOOP];
 
-    for (int i = 0; i < NUM_MEASURE; i++) {
-        size_t number_of_reads = num_reads;
+    assert(num_reads <= MAX_OUTER_LOOP);
+
+    for (int i = 0; i < num_reads; i++) {
+        size_t number_of_reads = MAX_INNER_LOOP;
         volatile size_t *f = (volatile size_t *) first;
         volatile size_t *s = (volatile size_t *) second;
 
-#if !defined(__aarch64__)	
+#if defined(__aarch64__)
+        sched_yield();
+#else
         for (int j = 0; j < 10; j++)
             sched_yield();
 #endif	
@@ -286,7 +291,7 @@ uint64_t getTiming(pointer first, pointer second) {
 #endif // fgpu or drama method
         }
 
-        uint64_t res = (rdtsc2() - t0) / (num_reads);
+        uint64_t res = (rdtsc2() - t0) / (MAX_INNER_LOOP);
 
 #if defined(__aarch64__)	
 	ticks[i] = res;
@@ -294,6 +299,7 @@ uint64_t getTiming(pointer first, pointer second) {
             i--;	
             continue;
 	}
+        // sched_yield();
 	// printf("%ld\n", res);
 #else
         for (int j = 0; j < 10; j++)
@@ -305,7 +311,7 @@ uint64_t getTiming(pointer first, pointer second) {
     }
 
 #if defined(__aarch64__)    
-    qsort((void *)ticks, NUM_MEASURE, sizeof(ticks[0]), comparator);	
+    qsort((void *)ticks, num_reads, sizeof(ticks[0]), comparator);
 
 #if 0    
     if (low_thresh == 0)
@@ -314,7 +320,7 @@ uint64_t getTiming(pointer first, pointer second) {
       high_thresh = ticks[NUM_MEASURE*9/10];
 #endif
     
-    min_res = ticks[NUM_MEASURE/2];
+    min_res = ticks[num_reads/2];
 #endif
     
     return min_res;
@@ -687,9 +693,6 @@ int main(int argc, char *argv[]) {
 
         }
 
-	logDebug("found(cycles): %d newset_sz: %lu pool_sz: %lu\n",
-                 found, new_set.size(), addr_pool.size());
-	    
         if (new_set.size() <= 1) {
             logWarning("Set must be wrong, contains too few addresses (%lu). Try again...\n", new_set.size());
             goto search_set;
@@ -713,6 +716,9 @@ int main(int argc, char *argv[]) {
                 it++;
             }
         }
+
+	logDebug("found(cycles): %d newset_sz: %lu pool_sz: %lu\n",
+                 found, new_set.size(), addr_pool.size());
 
         // save identified set if one was found
         sets.push_back(new_set);
