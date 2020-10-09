@@ -262,7 +262,7 @@ uint64_t getTiming(pointer first, pointer second) {
         volatile size_t *s = (volatile size_t *) second;
 
 #if defined(__aarch64__)
-        // sched_yield();
+        sched_yield();
 	// usleep(1);
 #else
         for (int j = 0; j < 10; j++)
@@ -318,14 +318,6 @@ uint64_t getTiming(pointer first, pointer second) {
 
 #if defined(__aarch64__)    
     qsort((void *)ticks, num_reads, sizeof(ticks[0]), comparator);
-
-#if 0    
-    if (low_thresh == 0)
-      low_thresh = ticks[NUM_MEASURE*1/10];
-    if (high_thresh == WINT_MAX)
-      high_thresh = ticks[NUM_MEASURE*9/10];
-#endif
-    
     min_res = ticks[num_reads/2];
 #endif
     
@@ -573,18 +565,20 @@ int main(int argc, char *argv[]) {
 #endif
 
 
-    t = getTiming(base, second);    
+    t = getTiming(base, base + sizeof(size_t));
     low_thresh = t * 0.5;
-    high_thresh = t * 20;
+    high_thresh = t * 3;
     logInfo("Average cycles: %ld  low_threshold: %ld high_threshold: %ld\n",
             t, low_thresh, high_thresh);
     
     int failed;
+    uint64_t sum_ticks = 0, measure_count = 0;
+
     while (found_sets < expected_sets) {
         for (size_t i = 0; i < MAX_HIST_SIZE; ++i)
-          hist[i] = 0;
+            hist[i] = 0;
         failed = 0;
-        search_set:
+    search_set:
         failed++;
         if (failed > 10) {
             logWarning("%s\n", "Couldn't find set after 10 tries, giving up, sorry!");
@@ -616,6 +610,9 @@ int main(int argc, char *argv[]) {
             // measure timing
             // sched_yield();
             t = getTiming(base, first);
+            sum_ticks += t;
+            measure_count++;
+
             // sched_yield();
             timing[t].push_back(std::make_pair(base_phys, first_phys));
 
@@ -644,7 +641,6 @@ int main(int argc, char *argv[]) {
             }
             fflush(stdout);
         }
-
         printf("\n");
 
         // identify sets -> must be on the right, separated in the histogram
@@ -688,6 +684,7 @@ int main(int argc, char *argv[]) {
         if (samebank_threshold > 0) {
             found = samebank_threshold;
         } else {
+#if 0
             for (int i = max; i >= min; i--) {
                 if (hist[i] <= 1)
                     empty++;
@@ -703,6 +700,9 @@ int main(int argc, char *argv[]) {
                 logWarning("%s\n", "No set found, trying again...");
                 goto search_set;
             }
+#else
+            found = (sum_ticks / measure_count) * 130 / 100;
+#endif
         }
 
         // remove found addresses from pool
@@ -713,10 +713,13 @@ int main(int argc, char *argv[]) {
                     new_set.push_back(it->second);
                 }
             }
-
         }
+        new_set.push_back(base_phys); // this is needed. another bug in the original code
 
-        if (new_set.size() <= 1) {
+	logDebug("found(cycles): %d newset_sz: %lu (expected_sz: %lu) pool_sz: %lu\n",
+                 found, new_set.size(), tries/expected_sets, addr_pool.size());
+
+        if (new_set.size() <= expected_sets * 110 / 100) {
             logWarning("Set must be wrong, contains too few addresses (%lu). Try again...\n", new_set.size());
             goto search_set;
         }
@@ -740,16 +743,13 @@ int main(int argc, char *argv[]) {
             }
         }
 
-	logDebug("found(cycles): %d newset_sz: %lu (expected_sz: %lu) pool_sz: %lu\n",
-                 found, new_set.size(), tries / expected_sets, addr_pool.size());
-
         // save identified set if one was found
         sets.push_back(new_set);
         found_siblings += new_set.size();
         
         // choose base address from remaining addresses
         auto ait = addr_pool.begin();
-        std::advance(ait, rand() % addr_pool.size());
+        // std::advance(ait, rand() % addr_pool.size());
         base = ait->first;
         base_phys = ait->second;
 
