@@ -31,13 +31,16 @@ int verbosity = 4;
 
 // default values
 size_t num_reads = 10;
+#define NUM_MEASURE        500  // orig: 4
+
 double fraction_of_physical_memory = 0.6;
 size_t expected_sets = 8;
 
+#define USE_LINEAR_ADDR    1
+
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
 #define ADDRESS_ALIGNMENT  11   // orig: 6 
-#define MAX_XOR_BITS       2    // orig: 7
-#define NUM_MEASURE        100  // orig: 4
+#define MAX_XOR_BITS       1    // orig: 7
 // ----------------------------------------------
 
 #define ETA_BUFFER 5
@@ -487,7 +490,6 @@ int main(int argc, char *argv[]) {
                 break;
         }
     }
-
     tries = expected_sets * 125; // DEBUG: original 125.
 
     logDebug("CPU: %s\n", getCPUModel());
@@ -501,14 +503,11 @@ int main(int argc, char *argv[]) {
 
     logInfo("Mapping has %zu MB\n", mapping_size / 1024 / 1024);
 
-
     pointer first, second;
     pointer first_phys, second_phys;
     pointer base, base_phys;
 
     size_t remaining_tries;
-
-    getRandomAddress(&base, &base_phys);
 
     long times[ETA_BUFFER], time_start;
     int time_ptr = 0;
@@ -516,7 +515,21 @@ int main(int argc, char *argv[]) {
 
     int found_sets = 0;
     int found_siblings = 0;
-    
+
+#if (USE_LINEAR_ADDR==1)
+    tries = mapping_size / (1<<ADDRESS_ALIGNMENT);
+
+    base = (pointer)mapping;
+    base_phys = phy_start_addr;
+
+    while (addr_pool.size() < tries) {
+        int idx = addr_pool.size();
+        second = base + idx * (1<<ADDRESS_ALIGNMENT);
+        second_phys = base_phys + idx * (1<<ADDRESS_ALIGNMENT);
+        // logDebug("addr_pool[%d]: 0x%lx\n", idx, second_phys);
+        addr_pool.insert(std::make_pair(second, second_phys));
+    }
+#else
     // choose a random base address
     getRandomAddress(&base, &base_phys);
 
@@ -525,6 +538,7 @@ int main(int argc, char *argv[]) {
         getRandomAddress(&second, &second_phys);
         addr_pool.insert(std::make_pair(second, second_phys));
     }
+#endif
 
     setpriority(PRIO_PROCESS, 0, -20);
 
@@ -554,19 +568,23 @@ int main(int argc, char *argv[]) {
         logInfo("Searching for set %d (try %d): base_phy=0x%lx\n",
                 found_sets + 1, failed, base_phys);
         timing.clear();
-        remaining_tries = tries;
+        remaining_tries = addr_pool.size(); // tries;
 
         // measure access times
         sched_yield();
         std::set <addrpair> used_addr;
         used_addr.clear();
         while (--remaining_tries) {
-            // sched_yield();
+            sched_yield();
             time_start = utime();
 
             // get random address from address pool (prevents any prefetch or something)
             auto pool_front = addr_pool.begin();
+#if USE_LINEAR_ADDR==1
+            std::advance(pool_front, (tries-remaining_tries) % addr_pool.size());
+#else
             std::advance(pool_front, rand() % addr_pool.size());
+#endif
             first = pool_front->first;
             first_phys = pool_front->second;
 
@@ -676,9 +694,8 @@ int main(int argc, char *argv[]) {
             logWarning("Set must be wrong, contains too few addresses (%lu). Try again...\n", new_set.size());
             goto search_set;
         }
-        if (new_set.size() > addr_pool.size() / expected_sets) {
-	    logWarning("Set must be wrong, contains too many addresses (%lu). Try again...\n",
-		       new_set.size());
+        if (new_set.size() > tries / expected_sets) { /* addr_pool.size() / expected..*/
+	    logWarning("Set must be wrong, contains too many addresses (expected: %lu/found: %ld). Try again...\n", tries / expected_sets, new_set.size());
 
             goto search_set;
         }
