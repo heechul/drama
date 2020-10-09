@@ -262,11 +262,12 @@ uint64_t getTiming(pointer first, pointer second) {
         volatile size_t *s = (volatile size_t *) second;
 
 #if defined(__aarch64__)
-        sched_yield();
+        // sched_yield();
+	// usleep(1);
 #else
         for (int j = 0; j < 10; j++)
             sched_yield();
-#endif	
+#endif
         size_t t0 = rdtsc();
 
         while (number_of_reads-- > 0) {
@@ -476,9 +477,9 @@ int main(int argc, char *argv[]) {
     std::map<int, std::list<addrpair> > timing;
     size_t hist[MAX_HIST_SIZE];
     int c;
-
+    int samebank_threshold = -1;
     
-    while ((c = getopt(argc, argv, "p:n:s:")) != EOF) {
+    while ((c = getopt(argc, argv, "p:n:s:t:")) != EOF) {
         switch (c) {
             case 'p':
                 fraction_of_physical_memory = atof(optarg);
@@ -488,6 +489,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 's':
                 expected_sets = atoi(optarg);
+                break;
+            case 't':
+                samebank_threshold = atoi(optarg);
                 break;
             case ':':
                 printf("Missing option.\n");
@@ -572,7 +576,7 @@ int main(int argc, char *argv[]) {
     t = getTiming(base, second);    
     low_thresh = t * 0.5;
     high_thresh = t * 20;
-    logInfo("Average cycles: %ld  low_threshold: %ld high_treshold: %ld\n",
+    logInfo("Average cycles: %ld  low_threshold: %ld high_threshold: %ld\n",
             t, low_thresh, high_thresh);
     
     int failed;
@@ -678,23 +682,27 @@ int main(int argc, char *argv[]) {
 
             printf("\n");
         }
-
         // find separation
         int empty = 0, found = 0;
-        for (int i = max; i >= min; i--) {
-            if (hist[i] <= 1)
-                empty++;
-            else
-                empty = 0;
-            if (empty >= 5) {
-                found = i + empty;
-                break;
-            }
-        }
 
-        if (!found) {
-            logWarning("%s\n", "No set found, trying again...");
-            goto search_set;
+        if (samebank_threshold > 0) {
+            found = samebank_threshold;
+        } else {
+            for (int i = max; i >= min; i--) {
+                if (hist[i] <= 1)
+                    empty++;
+                else
+                    empty = 0;
+                if (empty >= 5) {
+                    found = i + empty;
+                    break;
+                }
+            }
+
+            if (!found) {
+                logWarning("%s\n", "No set found, trying again...");
+                goto search_set;
+            }
         }
 
         // remove found addresses from pool
