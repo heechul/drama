@@ -600,7 +600,7 @@ int main(int argc, char *argv[]) {
             // get random address from address pool (prevents any prefetch or something)
             auto pool_front = addr_pool.begin();
 #if USE_LINEAR_ADDR==1
-            std::advance(pool_front, (tries-remaining_tries) % addr_pool.size());
+            std::advance(pool_front, (addr_pool.size()-remaining_tries));
 #else
             std::advance(pool_front, rand() % addr_pool.size());
 #endif
@@ -705,6 +705,8 @@ int main(int argc, char *argv[]) {
 #endif
         }
 
+        new_set.push_back(base_phys); // this is needed. another bug in the original code
+
         // remove found addresses from pool
         for (hit = timing.begin(); hit != timing.end(); hit++) {
             if (hit->first >= found && hit->first <= max) {
@@ -714,7 +716,6 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-        new_set.push_back(base_phys); // this is needed. another bug in the original code
 
 	logDebug("found(cycles): %d newset_sz: %lu (expected_sz: %lu) pool_sz: %lu\n",
                  found, new_set.size(), tries/expected_sets, addr_pool.size());
@@ -728,6 +729,7 @@ int main(int argc, char *argv[]) {
 
             goto search_set;
         }
+
 
         for (auto it = addr_pool.begin(); it != addr_pool.end();) {
             int erased = 0;
