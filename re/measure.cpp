@@ -272,17 +272,6 @@ uint64_t getTiming(pointer first, pointer second) {
         size_t t0 = rdtsc();
 
         while (number_of_reads-- > 0) {
-#if 1 // fgpu method
-            asm volatile (
-                        "DSB SY\n"
-                        "LDR X5, [%[ad1]]\n"
-                        "LDR X6, [%[ad2]]\n"
-                        "ADD %[out], X5, X6\n"
-                        "DC CIVAC, %[ad1]\n"
-                        "DC CIVAC, %[ad2]\n"
-                        "DSB SY\n"
-                        : [out] "=r" (min_res) : [ad1] "r" (f), [ad2] "r" (s) : "x5", "x6");
-#else // drama method          
             *f;
             *(f + number_of_reads);
 
@@ -295,7 +284,17 @@ uint64_t getTiming(pointer first, pointer second) {
             asm volatile("clflush (%0)" : : "r" (f) : "memory");
             asm volatile("clflush (%0)" : : "r" (s) : "memory");
 #endif
-#endif // fgpu or drama method
+#if 0 // alternative method
+            asm volatile (
+                        "DSB SY\n"
+                        "LDR X5, [%[ad1]]\n"
+                        "LDR X6, [%[ad2]]\n"
+                        "ADD %[out], X5, X6\n"
+                        "DC CIVAC, %[ad1]\n"
+                        "DC CIVAC, %[ad2]\n"
+                        "DSB SY\n"
+                        : [out] "=r" (min_res) : [ad1] "r" (f), [ad2] "r" (s) : "x5", "x6");
+#endif
         }
 
         uint64_t res = (rdtsc2() - t0) / (MAX_INNER_LOOP);
@@ -499,8 +498,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    tries = expected_sets * 250; // DEBUG: original 125.
-
     logDebug("CPU: %s\n", getCPUModel());
     logDebug("Memory percentage: %f\n", fraction_of_physical_memory);
     logDebug("Number of reads: %lu\n", num_reads);
@@ -539,6 +536,8 @@ int main(int argc, char *argv[]) {
         addr_pool.insert(std::make_pair(second, second_phys));
     }
 #else
+    tries = expected_sets * 250; // DEBUG: original 125.
+    
     // choose a random base address
     getRandomAddress(&base, &base_phys);
 
@@ -556,11 +555,11 @@ int main(int argc, char *argv[]) {
 #if defined(__aarch64__)
     int rr = pthread_create(&count_thread, 0, countthread , 0);
     if (rr != 0) {
-      return -1;
+        return -1;
     }
     logDebug("%s\n", "Waiting the counter thread...");
     while(counter == 0) {
-      asm volatile("DSB SY");
+        asm volatile("DSB SY");
     }
     logDebug("Done: %ld\n", counter);    
 #endif
@@ -704,7 +703,7 @@ int main(int argc, char *argv[]) {
                 goto search_set;
             }
 #else
-            found = (sum_ticks / measure_count) * 130 / 100;
+            found = (sum_ticks / measure_count) * 135 / 100;
 #endif
         }
 
