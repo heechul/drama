@@ -38,6 +38,7 @@ double fraction_of_physical_memory = 0.6;
 size_t expected_sets = 8;
 
 #define USE_LINEAR_ADDR    1    // require to load kam.ko (github.com/heechul/bank_test)
+#define DISPLAY_PROGRESS   0    // reamining time update. 
 #define LINEAR_MAP_SIZE    (1<<23)
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
 #define ADDRESS_ALIGNMENT  11   // orig: 6 
@@ -624,6 +625,7 @@ int main(int argc, char *argv[]) {
             }
 
             // sched_yield();
+#if DISPLAY_PROGRESS==1
             clearLine();
             if (time_valid) {
                 long mean = 0;
@@ -640,6 +642,7 @@ int main(int argc, char *argv[]) {
                        "|/-\\"[time_ptr % 4]);
             }
             fflush(stdout);
+#endif
         }
         printf("\n");
 
