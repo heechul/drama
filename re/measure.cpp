@@ -29,7 +29,7 @@
 
 #define USE_LINEAR_ADDR    1
 #define USE_MEDIAN         1
-#define USE_KAM            0    // require to load kam.ko (github.com/heechul/bank_test)
+#define USE_KAM            1    // require to load kam.ko (github.com/heechul/bank_test)
 #define DISPLAY_PROGRESS   1    // reamining time update.
 #define MAX_OUTER_LOOP     1000
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
