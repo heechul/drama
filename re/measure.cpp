@@ -309,12 +309,11 @@ uint64_t getTiming(pointer first, pointer second) {
 
         uint64_t res = (rdtsc2() - t0) / (num_reads_inner);
 
+#if USE_MEDIAN==1
         if (res <= low_thresh || res > high_thresh) {
             i--;	
             continue;
         }
-
-#if USE_MEDIAN==1        
         ticks[i] = res;
 #else        
         if (res < min_res)
