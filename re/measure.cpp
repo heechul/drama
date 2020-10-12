@@ -29,7 +29,7 @@
 
 #define USE_LINEAR_ADDR    1
 #define USE_MEDIAN         1
-#define USE_KAM            1    // require to load kam.ko (github.com/heechul/bank_test)
+#define USE_KAM            0    // require to load kam.ko (github.com/heechul/bank_test)
 #define DISPLAY_PROGRESS   1    // reamining time update.
 #define MAX_OUTER_LOOP     1000
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
@@ -152,7 +152,8 @@ void setupMapping() {
             if ((void *)mapping == MAP_FAILED) {
                 perror("alloc failed");
                 exit(1);
-            }
+            } else
+                logInfo("%s small page mapping\n", "4KB");
         } else
             logInfo("%s huge page mapping\n", "2MB");
     } else
