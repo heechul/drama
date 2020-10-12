@@ -26,23 +26,25 @@
 #include <sys/ioctl.h>
 #include "measure.h"
 
+
+#define USE_LINEAR_ADDR    1
+#define USE_MEDIAN         1
+#define USE_KAM            0    // require to load kam.ko (github.com/heechul/bank_test)
+#define DISPLAY_PROGRESS   1    // reamining time update.
+#define MAX_OUTER_LOOP     1000
+#define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
+#define MAX_XOR_BITS       7    // orig: 7
+
 // ------------ global settings ----------------
 int verbosity = 4;
 
 // default values
-size_t num_reads = 10;
-#define MAX_INNER_LOOP                  10
-#define MAX_OUTER_LOOP                  1000
+size_t num_reads_outer = 10;
+size_t num_reads_inner = 10;
+size_t mapping_size = (1<<24); // 16MB.
+size_t expected_sets = 16;
+int g_start_bit = 11; // search start bit
 
-double fraction_of_physical_memory = 0.6;
-size_t expected_sets = 8;
-
-#define USE_LINEAR_ADDR    1    // require to load kam.ko (github.com/heechul/bank_test)
-#define DISPLAY_PROGRESS   0    // reamining time update. 
-#define LINEAR_MAP_SIZE    (1<<24)  // 16MB. up to 24 bits
-#define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
-#define ADDRESS_ALIGNMENT  11   // orig: 6 
-#define MAX_XOR_BITS       7    // orig: 7
 // ----------------------------------------------
 
 #define ETA_BUFFER 5
@@ -52,9 +54,7 @@ std::vector <std::vector<pointer>> sets;
 std::map<int, std::vector<pointer> > functions;
 
 int g_pagemap_fd = -1;
-size_t mapping_size;
 void *mapping;
-
 
 // ----------------------------------------------
 size_t getPhysicalMemorySize() {
@@ -90,7 +90,7 @@ const char *getCPUModel() {
 }
 
 // ----------------------------------------------
-#if USE_LINEAR_ADDR==1
+#if USE_KAM==1
 
 uint64_t phy_start_addr;
 
@@ -101,7 +101,6 @@ void setupMapping() {
         exit(1);
     }
 
-    mapping_size = LINEAR_MAP_SIZE;
     mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
             MAP_SHARED, fd, 0);
 
@@ -137,15 +136,13 @@ pointer getPhysicalAddr(pointer virtual_addr) {
 
 #else
 void setupMapping() {
-    mapping_size =
-            static_cast<size_t>((static_cast<double>(getPhysicalMemorySize())
-                                 * fraction_of_physical_memory));
-
-    if (fraction_of_physical_memory < 0.01)
-        mapping_size = 2048 * 1024 * 1024u;
-
     mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
-                   MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE | (30 << MAP_HUGE_SHIFT), -1, 0);
+    if ((void *)mapping == MAP_FAILED) {
+        perror("alloc failed");
+        exit(1);
+    }
+
     assert(mapping != (void *) -1);
 
     logDebug("%s", "Initialize large memory block...\n");
@@ -254,21 +251,17 @@ static int comparator(const void *p, const void *q)
 uint64_t getTiming(pointer first, pointer second) {
     size_t min_res = (-1ull);
     size_t ticks[MAX_OUTER_LOOP];
+    assert(num_reads_outer <= MAX_OUTER_LOOP);
 
-    assert(num_reads <= MAX_OUTER_LOOP);
-
-    for (int i = 0; i < num_reads; i++) {
-        size_t number_of_reads = MAX_INNER_LOOP;
+    for (int i = 0; i < num_reads_outer; i++) {
+        size_t number_of_reads = num_reads_inner;
+        size_t sum = 0;
+        
         volatile size_t *f = (volatile size_t *) first;
         volatile size_t *s = (volatile size_t *) second;
 
-#if defined(__aarch64__)
         sched_yield();
-	// usleep(1);
-#else
-        for (int j = 0; j < 10; j++)
-            sched_yield();
-#endif
+        
         size_t t0 = rdtsc();
 
         while (number_of_reads-- > 0) {
@@ -284,6 +277,7 @@ uint64_t getTiming(pointer first, pointer second) {
             asm volatile("clflush (%0)" : : "r" (f) : "memory");
             asm volatile("clflush (%0)" : : "r" (s) : "memory");
 #endif
+
 #if 0 // alternative method
             asm volatile (
                         "DSB SY\n"
@@ -297,28 +291,24 @@ uint64_t getTiming(pointer first, pointer second) {
 #endif
         }
 
-        uint64_t res = (rdtsc2() - t0) / (MAX_INNER_LOOP);
+        uint64_t res = (rdtsc2() - t0) / (num_reads_inner);
 
-#if defined(__aarch64__)	
-	ticks[i] = res;
-	if (res <= low_thresh || res > high_thresh) {
+        if (res <= low_thresh || res > high_thresh) {
             i--;	
             continue;
-	}
-        // sched_yield();
-	// printf("%ld\n", res);
-#else
-        for (int j = 0; j < 10; j++)
-            sched_yield();
-	
+        }
+
+#if USE_MEDIAN==1        
+        ticks[i] = res;
+#else        
         if (res < min_res)
             min_res = res;
 #endif
     }
 
-#if defined(__aarch64__)    
-    qsort((void *)ticks, num_reads, sizeof(ticks[0]), comparator);
-    min_res = ticks[num_reads/2];
+#if USE_MEDIAN==1
+    qsort((void *)ticks, num_reads_outer, sizeof(ticks[0]), comparator);
+    min_res = ticks[num_reads_outer/2];
 #endif
     
     return min_res;
@@ -439,7 +429,7 @@ std::vector <pointer> find_function(int bits, int pointer_bit, int align_bit) {
     std::vector <pointer> func;
     for (std::set<pointer>::iterator f = func_pool.begin();
          f != func_pool.end(); f++) {
-        func.push_back((*f) << ADDRESS_ALIGNMENT);
+        func.push_back((*f) << g_start_bit);
     }
     return func;
 }
@@ -470,14 +460,20 @@ int main(int argc, char *argv[]) {
     size_t hist[MAX_HIST_SIZE];
     int c;
     int samebank_threshold = -1;
-    
-    while ((c = getopt(argc, argv, "p:n:s:t:")) != EOF) {
+
+    while ((c = getopt(argc, argv, "b:m:i:j:s:t:")) != EOF) {
         switch (c) {
-            case 'p':
-                fraction_of_physical_memory = atof(optarg);
+            case 'b':
+                g_start_bit = atof(optarg);
                 break;
-            case 'n':
-                num_reads = atol(optarg);
+            case 'm':
+                mapping_size = atol(optarg) * 1024 * 1024;
+                break;
+            case 'i':
+                num_reads_outer = atol(optarg);
+                break;
+            case 'j':
+                num_reads_inner = atol(optarg);
                 break;
             case 's':
                 expected_sets = atoi(optarg);
@@ -491,7 +487,7 @@ int main(int argc, char *argv[]) {
                 break;
             default:
                 printf(
-                        "Usage %s [-p <memory percentage>] [-n <number of reads>] [-s <expected sets>]\n",
+                        "Usage %s [-m <memory size in MB>] [-n <number of reads>] [-s <expected sets>]\n",
                         argv[0]);
                 exit(0);
                 break;
@@ -499,8 +495,7 @@ int main(int argc, char *argv[]) {
     }
 
     logDebug("CPU: %s\n", getCPUModel());
-    logDebug("Memory percentage: %f\n", fraction_of_physical_memory);
-    logDebug("Number of reads: %lu\n", num_reads);
+    logDebug("Number of reads: %lu x %lu\n", num_reads_outer, num_reads_inner)
     logDebug("Expected sets: %lu\n", expected_sets);
 
     srand(time(NULL));
@@ -523,15 +518,15 @@ int main(int argc, char *argv[]) {
     int found_siblings = 0;
 
 #if (USE_LINEAR_ADDR==1)
-    tries = mapping_size / (1<<ADDRESS_ALIGNMENT);
+    tries = mapping_size / (1<<g_start_bit);
 
     base = (pointer)mapping;
-    base_phys = phy_start_addr;
+    base_phys = getPhysicalAddr(base);
 
     while (addr_pool.size() < tries) {
         int idx = addr_pool.size();
-        second = base + idx * (1<<ADDRESS_ALIGNMENT);
-        second_phys = base_phys + idx * (1<<ADDRESS_ALIGNMENT);
+        second = base + idx * (1<<g_start_bit);
+        second_phys = getPhysicalAddr(second); 
         // logDebug("addr_pool[%d]: 0x%lx\n", idx, second_phys);
         addr_pool.insert(std::make_pair(second, second_phys));
     }
@@ -769,8 +764,8 @@ int main(int argc, char *argv[]) {
     // try to find a xor function
     std::map<int, std::vector<double> > prob;
     for (int bits = 1; bits <= MAX_XOR_BITS; bits++) {
-        functions[bits] = find_function(bits, POINTER_SIZE, ADDRESS_ALIGNMENT);
-        prob[bits] = prob_function(functions[bits], ADDRESS_ALIGNMENT);
+        functions[bits] = find_function(bits, POINTER_SIZE, g_start_bit);
+        prob[bits] = prob_function(functions[bits], g_start_bit);
     }
 
     // filter out false positives
