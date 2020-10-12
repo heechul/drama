@@ -136,12 +136,27 @@ pointer getPhysicalAddr(pointer virtual_addr) {
 
 #else
 void setupMapping() {
+    // try 1GB huge page
     mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
-                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE | (30 << MAP_HUGE_SHIFT), -1, 0);
+                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE |
+                   (30 << MAP_HUGE_SHIFT), -1, 0);
     if ((void *)mapping == MAP_FAILED) {
-        perror("alloc failed");
-        exit(1);
-    }
+        // try 2MB huge page
+        mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE,
+                       -1, 0);
+        if ((void *)mapping == MAP_FAILED) {
+            // nomal page allocation
+            mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
+                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
+            if ((void *)mapping == MAP_FAILED) {
+                perror("alloc failed");
+                exit(1);
+            }
+        } else
+            logInfo("%s huge page mapping\n", "2MB");
+    } else
+        logInfo("%s huge page mapping\n", "1GB");
 
     assert(mapping != (void *) -1);
 
@@ -487,7 +502,7 @@ int main(int argc, char *argv[]) {
                 break;
             default:
                 printf(
-                        "Usage %s [-m <memory size in MB>] [-n <number of reads>] [-s <expected sets>]\n",
+                        "Usage %s [-m <memory size in MB>] [-i <number of outer loops>] [-j <number of inner loops>] [-s <expected sets>] [-t <threshold cycles>]\n",
                         argv[0]);
                 exit(0);
                 break;
