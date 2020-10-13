@@ -28,7 +28,9 @@
 
 
 #define USE_LINEAR_ADDR    1
+#if defined(__aarch64__)
 #define USE_MEDIAN         1
+#endif
 #define USE_KAM            0    // require to load kam.ko (github.com/heechul/bank_test)
 #define DISPLAY_PROGRESS   1    // reamining time update.
 #define MAX_OUTER_LOOP     1000
@@ -271,8 +273,6 @@ uint64_t getTiming(pointer first, pointer second) {
 
     for (int i = 0; i < num_reads_outer; i++) {
         size_t number_of_reads = num_reads_inner;
-        size_t sum = 0;
-        
         volatile size_t *f = (volatile size_t *) first;
         volatile size_t *s = (volatile size_t *) second;
 
@@ -281,31 +281,19 @@ uint64_t getTiming(pointer first, pointer second) {
         size_t t0 = rdtsc();
 
         while (number_of_reads-- > 0) {
-#if 0 && defined(__aarch64__) // alternative method
-            asm volatile (
-                "DSB SY\n"
-                "LDR X5, [%[ad1]]\n"
-                "LDR X6, [%[ad2]]\n"
-                "ADD %[out], X5, X6\n"
-                "DC CIVAC, %[ad1]\n"
-                "DC CIVAC, %[ad2]\n"
-                "DSB SY\n"
-                : [out] "=r" (min_res) : [ad1] "r" (f), [ad2] "r" (s) : "x5", "x6");
-#else
             *f;
             *(f + number_of_reads);
 
             *s;
             *(s + number_of_reads);
+
 #if defined(__aarch64__)
             asm volatile("DC CIVAC, %[ad]" : : [ad] "r" (f) : "memory");
             asm volatile("DC CIVAC, %[ad]" : : [ad] "r" (s) : "memory");
-            asm volatile("DSB SY");
 #else
             asm volatile("clflush (%0)" : : "r" (f) : "memory");
             asm volatile("clflush (%0)" : : "r" (s) : "memory");
             asm volatile("mfence");
-#endif
 #endif
         }
 
@@ -734,11 +722,12 @@ int main(int argc, char *argv[]) {
 	logDebug("found(cycles): %d newset_sz: %lu (expected_sz: %lu) pool_sz: %lu\n",
                  found, new_set.size(), tries/expected_sets, addr_pool.size());
 
-        if (new_set.size() <= expected_sets * 10 / 100) {
+        if (new_set.size() <= expected_sets * 0.1) {
             logWarning("Set must be wrong, contains too few addresses (%lu). Try again...\n", new_set.size());
             goto search_set;
         }
-        if (new_set.size() > tries / expected_sets) { /* addr_pool.size() / expected..*/
+        if (new_set.size() > tries / expected_sets * 1.1) {
+            /* addr_pool.size() / expected..*/
 	    logWarning("Set must be wrong, contains too many addresses (expected: %lu/found: %ld). Try again...\n", tries / expected_sets, new_set.size());
 
             goto search_set;
