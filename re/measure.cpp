@@ -41,7 +41,7 @@ int verbosity = 4;
 // default values
 size_t num_reads_outer = 10;
 size_t num_reads_inner = 10;
-size_t mapping_size = (1<<24); // 16MB.
+size_t mapping_size = (1<<23); // 8MB default
 size_t expected_sets = 16;
 int g_start_bit = 11; // search start bit
 
@@ -216,16 +216,16 @@ static volatile uint64_t counter = 0;
 static pthread_t count_thread;
 
 static void *countthread(void *dummy) {
-  uint64_t local_counter = 0;
-  while (1) {
+    uint64_t local_counter = 0;
+    while (1) {
 #if USE_FAST_COUNTER==1
-    local_counter++;
-    counter = local_counter;
+        local_counter++;
+        counter = local_counter;
 #else
-    counter++;
+        counter++;
 #endif
-  }
-  return NULL;
+    }
+    return NULL;
 }
 #endif
 
@@ -281,29 +281,31 @@ uint64_t getTiming(pointer first, pointer second) {
         size_t t0 = rdtsc();
 
         while (number_of_reads-- > 0) {
+#if 0 && defined(__aarch64__) // alternative method
+            asm volatile (
+                "DSB SY\n"
+                "LDR X5, [%[ad1]]\n"
+                "LDR X6, [%[ad2]]\n"
+                "ADD %[out], X5, X6\n"
+                "DC CIVAC, %[ad1]\n"
+                "DC CIVAC, %[ad2]\n"
+                "DSB SY\n"
+                : [out] "=r" (min_res) : [ad1] "r" (f), [ad2] "r" (s) : "x5", "x6");
+#else
             *f;
             *(f + number_of_reads);
 
             *s;
             *(s + number_of_reads);
 #if defined(__aarch64__)
-            asm volatile ("DC CIVAC, %[ad]" : : [ad] "r" (f) : "memory");
-            asm volatile ("DC CIVAC, %[ad]" : : [ad] "r" (s) : "memory"); 
+            asm volatile("DC CIVAC, %[ad]" : : [ad] "r" (f) : "memory");
+            asm volatile("DC CIVAC, %[ad]" : : [ad] "r" (s) : "memory");
+            asm volatile("DSB SY");
 #else
             asm volatile("clflush (%0)" : : "r" (f) : "memory");
             asm volatile("clflush (%0)" : : "r" (s) : "memory");
+            asm volatile("mfence");
 #endif
-
-#if 0 // alternative method
-            asm volatile (
-                        "DSB SY\n"
-                        "LDR X5, [%[ad1]]\n"
-                        "LDR X6, [%[ad2]]\n"
-                        "ADD %[out], X5, X6\n"
-                        "DC CIVAC, %[ad1]\n"
-                        "DC CIVAC, %[ad2]\n"
-                        "DSB SY\n"
-                        : [out] "=r" (min_res) : [ad1] "r" (f), [ad2] "r" (s) : "x5", "x6");
 #endif
         }
 
