@@ -27,7 +27,6 @@
 #include "measure.h"
 
 
-#define USE_LINEAR_ADDR    1
 #if defined(__aarch64__)
 #define USE_MEDIAN         1
 #endif
@@ -46,6 +45,9 @@ size_t num_reads_inner = 10;
 size_t mapping_size = (1<<23); // 8MB default
 size_t expected_sets = 16;
 int g_start_bit = 11; // search start bit
+int g_use_linear_addr = 1;
+int g_display_progress = 1;
+int g_use_kam = 0;
 
 // ----------------------------------------------
 
@@ -92,85 +94,78 @@ const char *getCPUModel() {
 }
 
 // ----------------------------------------------
-#if USE_KAM==1
-
 uint64_t phy_start_addr;
 
 void setupMapping() {
-    int fd = open("/dev/kam", O_RDWR);
-    if (fd < 0) {
-        fprintf(stderr, "Couldn't open device file\n");
-        exit(1);
-    }
+    if (g_use_kam) {
+        int fd = open("/dev/kam", O_RDWR);
+        if (fd < 0) {
+            fprintf(stderr, "Couldn't open device file\n");
+            exit(1);
+        }
 
-    mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
-            MAP_SHARED, fd, 0);
-
-    /* We don't close the file. We let it close when exit */
-    if (mapping == MAP_FAILED) {
-        perror("Couldn't allocate memory from device\n");
-        exit(2);
-    }
-
-    // Get the physcal address of start address
-    int iret = ioctl(fd, 0, &phy_start_addr);
-    if (iret < 0) {
-        perror("Couldn't find the physical address of start\n");
-        exit(3);
-    }
-    
-    // *(int *)ret = 0x12345678;
-    logDebug("Value [%p]=%x\n", mapping, *(int *)mapping);
-    
-    logDebug("%s", "Initialize large memory block...\n");
-    for (size_t index = 0; index < mapping_size; index += 0x1000) {
-        pointer *temporary =
-                reinterpret_cast<pointer *>(static_cast<uint8_t *>(mapping)
-                                            + index);
-        temporary[0] = index;
-    }
-    logDebug("%s", " done!\n");
-}
-
-pointer getPhysicalAddr(pointer virtual_addr) {
-    return (virtual_addr - (unsigned long int)mapping) + phy_start_addr;
-}
-
-#else
-void setupMapping() {
-    // try 1GB huge page
-    mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
-                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE |
-                   (30 << MAP_HUGE_SHIFT), -1, 0);
-    if ((void *)mapping == MAP_FAILED) {
-        // try 2MB huge page
         mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
-                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE,
-                       -1, 0);
-        if ((void *)mapping == MAP_FAILED) {
-            // nomal page allocation
-            mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
-                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
-            if ((void *)mapping == MAP_FAILED) {
-                perror("alloc failed");
-                exit(1);
-            } else
-                logInfo("%s small page mapping\n", "4KB");
-        } else
-            logInfo("%s huge page mapping\n", "2MB");
-    } else
-        logInfo("%s huge page mapping\n", "1GB");
+                       MAP_SHARED, fd, 0);
 
-    assert(mapping != (void *) -1);
+        /* We don't close the file. We let it close when exit */
+        if (mapping == MAP_FAILED) {
+            perror("Couldn't allocate memory from device\n");
+            exit(2);
+        }
 
-    logDebug("%s", "Initialize large memory block...\n");
-    for (size_t index = 0; index < mapping_size; index += 0x1000) {
-        pointer *temporary =
+        // Get the physcal address of start address
+        int iret = ioctl(fd, 0, &phy_start_addr);
+        if (iret < 0) {
+            perror("Couldn't find the physical address of start\n");
+            exit(3);
+        }
+    
+        // *(int *)ret = 0x12345678;
+        logDebug("Value [%p]=%x\n", mapping, *(int *)mapping);
+    
+        logDebug("%s", "Initialize large memory block...\n");
+        for (size_t index = 0; index < mapping_size; index += 0x1000) {
+            pointer *temporary =
                 reinterpret_cast<pointer *>(static_cast<uint8_t *>(mapping)
                                             + index);
-        temporary[0] = index;
-    }
-    logDebug("%s", " done!\n");
+            temporary[0] = index;
+        }
+        logDebug("%s", " done!\n");
+    } else {
+        // try 1GB huge page
+        mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE |
+                       (30 << MAP_HUGE_SHIFT), -1, 0);
+        if ((void *)mapping == MAP_FAILED) {
+            // try 2MB huge page
+            mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
+                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE,
+                           -1, 0);
+            if ((void *)mapping == MAP_FAILED) {
+                // nomal page allocation
+                mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
+                               MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
+                if ((void *)mapping == MAP_FAILED) {
+                    perror("alloc failed");
+                    exit(1);
+                } else
+                    logInfo("%s small page mapping\n", "4KB");
+            } else
+                logInfo("%s huge page mapping\n", "2MB");
+        } else
+            logInfo("%s huge page mapping\n", "1GB");
+
+        assert(mapping != (void *) -1);
+
+        logDebug("%s", "Initialize large memory block...\n");
+        for (size_t index = 0; index < mapping_size; index += 0x1000) {
+            pointer *temporary =
+                reinterpret_cast<pointer *>(static_cast<uint8_t *>(mapping)
+                                            + index);
+            temporary[0] = index;
+        }
+        logDebug("%s", " done!\n");
+    }        
 }
 
 // ----------------------------------------------
@@ -178,21 +173,22 @@ size_t frameNumberFromPagemap(size_t value) {
     return value & ((1ULL << 54) - 1);
 }
 
-// ----------------------------------------------
 pointer getPhysicalAddr(pointer virtual_addr) {
-    pointer value;
-    off_t offset = (virtual_addr / 4096) * sizeof(value);
-    int got = pread(g_pagemap_fd, &value, sizeof(value), offset);
-    assert(got == 8);
+    if (g_use_kam) {
+        return (virtual_addr - (unsigned long int)mapping) + phy_start_addr;
+    } else {
+        pointer value;
+        off_t offset = (virtual_addr / 4096) * sizeof(value);
+        int got = pread(g_pagemap_fd, &value, sizeof(value), offset);
+        assert(got == 8);
 
-    // Check the "page present" flag.
-    assert(value & (1ULL << 63));
+        // Check the "page present" flag.
+        assert(value & (1ULL << 63));
 
-    pointer frame_num = frameNumberFromPagemap(value);
-    return (frame_num * 4096) | (virtual_addr & (4095));
+        pointer frame_num = frameNumberFromPagemap(value);
+        return (frame_num * 4096) | (virtual_addr & (4095));
+    }
 }
-#endif
-
 
 // ----------------------------------------------
 void initPagemap() {
@@ -378,6 +374,15 @@ int apply_bitmask(pointer addr, pointer mask) {
     return xor64(addr & mask);
 }
 
+int get_bank_num(pointer addr) {
+    int bank =
+        ((addr >> 11) & 0x1) |
+        (((addr >> 12) & 0x1) << 1) |
+        (((addr >> 13) & 0x1) << 2) |
+        (((addr >> 14) & 0x1) << 3); 
+    return bank;
+}
+
 // ----------------------------------------------
 char *name_bits(pointer mask) {
     static char name[256], bn[8];
@@ -466,36 +471,47 @@ int main(int argc, char *argv[]) {
     int c;
     int samebank_threshold = -1;
 
-    while ((c = getopt(argc, argv, "b:m:i:j:s:t:")) != EOF) {
+    while ((c = getopt(argc, argv, "b:d:m:i:j:ks:t:r")) != EOF) {
         switch (c) {
-            case 'b':
-                g_start_bit = atof(optarg);
-                break;
-            case 'm':
-                mapping_size = atol(optarg) * 1024 * 1024;
-                break;
-            case 'i':
-                num_reads_outer = atol(optarg);
-                break;
-            case 'j':
-                num_reads_inner = atol(optarg);
-                break;
-            case 's':
-                expected_sets = atoi(optarg);
-                break;
-            case 't':
-                samebank_threshold = atoi(optarg);
-                break;
-            case ':':
-                printf("Missing option.\n");
-                exit(1);
-                break;
-            default:
-                printf(
-                        "Usage %s [-m <memory size in MB>] [-i <number of outer loops>] [-j <number of inner loops>] [-s <expected sets>] [-t <threshold cycles>]\n",
-                        argv[0]);
-                exit(0);
-                break;
+        case 'b':
+            g_start_bit = atof(optarg);
+            break;
+        case 'd':
+            g_display_progress = atoi(optarg);
+            break;
+        case 'm':
+            mapping_size = atol(optarg) * 1024 * 1024;
+            break;
+        case 'i':
+            num_reads_outer = atol(optarg);
+            break;
+        case 'j':
+            num_reads_inner = atol(optarg);
+            break;
+        case 'k':
+            g_use_kam = 1;
+            break;
+        case 's':
+            expected_sets = atoi(optarg);
+            break;
+        case 't':
+            samebank_threshold = atoi(optarg);
+            break;
+        case 'r':
+            g_use_linear_addr = 0;
+            break;
+        case ':':
+            printf("Missing option.\n");
+            exit(1);
+            break;
+        default:
+            printf(
+                "Usage %s [-m <memory size in MB>] [-i <number of outer loops>] [-j <number of inner loops>] [-s <expected sets>] [-t <threshold cycles> [-k] [-r]]\n",
+                argv[0]);
+            printf("-k : use KAM module\n");
+            printf("-r : use random addresses\n");
+            exit(0);
+            break;
         }
     }
 
@@ -508,7 +524,7 @@ int main(int argc, char *argv[]) {
     setupMapping();
 
     logInfo("Mapping has %zu MB\n", mapping_size / 1024 / 1024);
-
+    
     pointer first, second;
     pointer first_phys, second_phys;
     pointer base, base_phys;
@@ -522,31 +538,39 @@ int main(int argc, char *argv[]) {
     int found_sets = 0;
     int found_siblings = 0;
 
-#if (USE_LINEAR_ADDR==1)
-    tries = mapping_size / (1<<g_start_bit);
+    logInfo("Address pool method: %s\n", (g_use_linear_addr)?"linear":"random");
+    if (g_use_linear_addr) {
+        tries = mapping_size / (1<<g_start_bit);
 
-    base = (pointer)mapping;
-    base_phys = getPhysicalAddr(base);
-
-    while (addr_pool.size() < tries) {
-        int idx = addr_pool.size();
-        second = base + idx * (1<<g_start_bit);
-        second_phys = getPhysicalAddr(second); 
-        // logDebug("addr_pool[%d]: 0x%lx\n", idx, second_phys);
-        addr_pool.insert(std::make_pair(second, second_phys));
-    }
-#else
-    tries = expected_sets * 250; // DEBUG: original 125.
+        base = (pointer)mapping;
+        base_phys = getPhysicalAddr(base);
+        
+        while (addr_pool.size() < tries) {
+            int idx = addr_pool.size();
+            second = base + idx * (1<<g_start_bit);
+            second_phys = getPhysicalAddr(second); 
+            logDebug("addr_pool[%ld]: 0x%0lx Bank %d\n",
+                     addr_pool.size(), second_phys, get_bank_num(second_phys));
+            
+            addr_pool.insert(std::make_pair(second, second_phys));
+        }
+    } else {
+        tries = expected_sets * 125; // DEBUG: original 125.
     
-    // choose a random base address
-    getRandomAddress(&base, &base_phys);
+        // build address pool
+        while (int cur_count = addr_pool.size() < tries) {
+            getRandomAddress(&second, &second_phys);
+            addr_pool.insert(std::make_pair(second, second_phys));
+            if (cur_count != addr_pool.size())
+                logDebug("addr_pool[%ld]: 0x%0lx Bank %d\n",
+                         addr_pool.size(), second_phys, get_bank_num(second_phys));
+        }
 
-    // build address pool
-    while (addr_pool.size() < tries) {
-        getRandomAddress(&second, &second_phys);
-        addr_pool.insert(std::make_pair(second, second_phys));
+        auto ait = addr_pool.begin();
+        // std::advance(ait, rand() % addr_pool.size());
+        base = ait->first;
+        base_phys = ait->second;
     }
-#endif
 
     logDebug("Address pool size: %lu\n", addr_pool.size());
 
@@ -599,11 +623,11 @@ int main(int argc, char *argv[]) {
 
             // get random address from address pool (prevents any prefetch or something)
             auto pool_front = addr_pool.begin();
-#if USE_LINEAR_ADDR==1
-            std::advance(pool_front, (addr_pool.size()-remaining_tries));
-#else
-            std::advance(pool_front, rand() % addr_pool.size());
-#endif
+            if (1) // g_use_linear_addr)
+                std::advance(pool_front, (addr_pool.size()-remaining_tries));
+            else
+                std::advance(pool_front, rand() % addr_pool.size());
+
             first = pool_front->first;
             first_phys = pool_front->second;
 
@@ -624,31 +648,30 @@ int main(int argc, char *argv[]) {
             }
 
             // sched_yield();
-#if DISPLAY_PROGRESS==1
-            clearLine();
-            if (time_valid) {
-                long mean = 0;
-                for (int i = 0; i < ETA_BUFFER; i++) {
-                    mean += times[i];
+            if (g_display_progress) {
+                clearLine();
+                if (time_valid) {
+                    long mean = 0;
+                    for (int i = 0; i < ETA_BUFFER; i++) {
+                        mean += times[i];
+                    }
+                    mean /= ETA_BUFFER;
+                    printf("%lu%% (ETA: %s)",
+                           (tries - remaining_tries + 1) * 100 / tries,
+                           formatTime(mean * remaining_tries));
+                } else {
+                    printf("%lu%% (ETA: %c)",
+                           (tries - remaining_tries + 1) * 100 / tries,
+                           "|/-\\"[time_ptr % 4]);
                 }
-                mean /= ETA_BUFFER;
-                printf("%lu%% (ETA: %s)",
-                       (tries - remaining_tries + 1) * 100 / tries,
-                       formatTime(mean * remaining_tries));
-            } else {
-                printf("%lu%% (ETA: %c)",
-                       (tries - remaining_tries + 1) * 100 / tries,
-                       "|/-\\"[time_ptr % 4]);
+                fflush(stdout);
             }
-            fflush(stdout);
-#endif
         }
         printf("\n");
 
         // identify sets -> must be on the right, separated in the histogram
         std::vector <pointer> new_set;
-        std::map < int, std::list < addrpair > > ::iterator
-        hit;
+        std::map < int, std::list < addrpair > > ::iterator hit;
         int min = MAX_HIST_SIZE;
         int max = 0;
         int max_v = 0;
@@ -764,7 +787,12 @@ int main(int argc, char *argv[]) {
              found_sets, found_siblings);
 
     for (int set = 0; set < sets.size(); set++) {
-        logInfo("Set %d: 0x%lx count: %ld\n", set + 1, sets[set][0], sets[set].size());
+        logInfo("Set %d: 0x%lx count: %ld\n",
+                set + 1, sets[set][0], sets[set].size());
+        for (int j = 0; j < sets[set].size(); j++) {
+            logDebug("  0x%lx Bank %d\n",
+                     sets[set][j], get_bank_num(sets[set][j]));
+        }
     }
     
     // try to find a xor function
