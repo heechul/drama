@@ -42,3 +42,26 @@ Interferred mapping:
 15 XOR 19
 16 XOR 20
 17 XOR 21
+
+## Intel Nehalem  (2xdimms) 
+
+Bits: 1, sz=5
+13  (Correct: 71%)
+14  (Correct: 71%)
+16  (Correct: 85%)
+20  (Correct: 100%)
+21  (Correct: 71%)
+Bits: 2, sz=10
+Bits: 3, sz=10
+Bits: 4, sz=5
+Bits: 5, sz=1
+Bits: 6, sz=0
+Bits: 7, sz=0
+Finishing
+
+Inferred mapping:
+13
+14
+16
+20
+21
