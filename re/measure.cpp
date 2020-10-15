@@ -471,7 +471,7 @@ int main(int argc, char *argv[]) {
     int c;
     int samebank_threshold = -1;
 
-    while ((c = getopt(argc, argv, "b:d:m:i:j:ks:t:r")) != EOF) {
+    while ((c = getopt(argc, argv, "b:d:m:i:j:ks:t:rv:")) != EOF) {
         switch (c) {
         case 'b':
             g_start_bit = atof(optarg);
@@ -499,6 +499,9 @@ int main(int argc, char *argv[]) {
             break;
         case 'r':
             g_use_linear_addr = 0;
+            break;
+        case 'v':
+            verbosity = atoi(optarg);
             break;
         case ':':
             printf("Missing option.\n");
@@ -623,7 +626,7 @@ int main(int argc, char *argv[]) {
 
             // get random address from address pool (prevents any prefetch or something)
             auto pool_front = addr_pool.begin();
-            if (1) // g_use_linear_addr)
+            if (0) // g_use_linear_addr)
                 std::advance(pool_front, (addr_pool.size()-remaining_tries));
             else
                 std::advance(pool_front, rand() % addr_pool.size());
@@ -742,14 +745,14 @@ int main(int argc, char *argv[]) {
             }
         }
 
-	logDebug("found(cycles): %d newset_sz: %lu (expected_sz: %lu) pool_sz: %lu\n",
+	logInfo("found(cycles): %d newset_sz: %lu (expected_sz: %lu) pool_sz: %lu\n",
                  found, new_set.size(), tries/expected_sets, addr_pool.size());
 
-        if (new_set.size() <= expected_sets * 0.1) {
+        if (new_set.size() <= expected_sets * 0.8) {
             logWarning("Set must be wrong, contains too few addresses (%lu). Try again...\n", new_set.size());
             goto search_set;
         }
-        if (new_set.size() > tries / expected_sets * 1.1) {
+        if (new_set.size() > tries / expected_sets * 1.2) {
             /* addr_pool.size() / expected..*/
 	    logWarning("Set must be wrong, contains too many addresses (expected: %lu/found: %ld). Try again...\n", tries / expected_sets, new_set.size());
 
@@ -822,6 +825,7 @@ int main(int argc, char *argv[]) {
     // find number of functions, highest bit and lowest bit
     for (int bits = 1; bits <= MAX_XOR_BITS; bits++) {
         rows += functions[bits].size();
+	logDebug("functions[%d].size(): %ld\n", bits, functions[bits].size());
         for (pointer f : functions[bits]) {
             if (f > cols) cols = f;
         }
