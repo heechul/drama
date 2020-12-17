@@ -374,14 +374,15 @@ int apply_bitmask(pointer addr, pointer mask) {
     return xor64(addr & mask);
 }
 
-int get_bank_num(pointer addr) {
-    int bank =
-        ((addr >> 11) & 0x1) |
-        (((addr >> 12) & 0x1) << 1) |
-        (((addr >> 13) & 0x1) << 2) |
-        (((addr >> 14) & 0x1) << 3); 
-    return bank;
-}
+// for debugging: only valid on raspberry pi 4
+// int get_bank_num(pointer addr) {
+//     int bank =
+//         ((addr >> 11) & 0x1) |
+//         (((addr >> 12) & 0x1) << 1) |
+//         (((addr >> 13) & 0x1) << 2) |
+//         (((addr >> 14) & 0x1) << 3); 
+//     return bank;
+// }
 
 // ----------------------------------------------
 char *name_bits(pointer mask) {
@@ -552,8 +553,8 @@ int main(int argc, char *argv[]) {
             int idx = addr_pool.size();
             second = base + idx * (1<<g_start_bit);
             second_phys = getPhysicalAddr(second); 
-            logDebug("addr_pool[%ld]: 0x%0lx Bank %d\n",
-                     addr_pool.size(), second_phys, get_bank_num(second_phys));
+            // logDebug("addr_pool[%ld]: 0x%0lx Bank %d\n",
+            //          addr_pool.size(), second_phys, get_bank_num(second_phys));
             
             addr_pool.insert(std::make_pair(second, second_phys));
         }
@@ -564,9 +565,9 @@ int main(int argc, char *argv[]) {
         while (int cur_count = addr_pool.size() < tries) {
             getRandomAddress(&second, &second_phys);
             addr_pool.insert(std::make_pair(second, second_phys));
-            if (cur_count != addr_pool.size())
-                logDebug("addr_pool[%ld]: 0x%0lx Bank %d\n",
-                         addr_pool.size(), second_phys, get_bank_num(second_phys));
+            // if (cur_count != addr_pool.size())
+            //     logDebug("addr_pool[%ld]: 0x%0lx Bank %d\n",
+            //              addr_pool.size(), second_phys, get_bank_num(second_phys));
         }
 
         auto ait = addr_pool.begin();
@@ -792,10 +793,10 @@ int main(int argc, char *argv[]) {
     for (int set = 0; set < sets.size(); set++) {
         logInfo("Set %d: 0x%lx count: %ld\n",
                 set + 1, sets[set][0], sets[set].size());
-        for (int j = 0; j < sets[set].size(); j++) {
-            logDebug("  0x%lx Bank %d\n",
-                     sets[set][j], get_bank_num(sets[set][j]));
-        }
+        // for (int j = 0; j < sets[set].size(); j++) {
+        //     logDebug("  0x%lx Bank %d\n",
+        //              sets[set][j], get_bank_num(sets[set][j]));
+        // }
     }
     
     // try to find a xor function
