@@ -552,9 +552,11 @@ int main(int argc, char *argv[]) {
             int idx = addr_pool.size();
             second = base + idx * (1<<g_start_bit);
             second_phys = getPhysicalAddr(second); 
+#if 0
             logDebug("addr_pool[%ld]: 0x%0lx Bank %d\n",
                      addr_pool.size(), second_phys, get_bank_num(second_phys));
             
+#endif
             addr_pool.insert(std::make_pair(second, second_phys));
         }
     } else {
@@ -748,7 +750,7 @@ int main(int argc, char *argv[]) {
 	logInfo("found(cycles): %d newset_sz: %lu (expected_sz: %lu) pool_sz: %lu\n",
                  found, new_set.size(), tries/expected_sets, addr_pool.size());
 
-        if (new_set.size() <= expected_sets * 0.8) {
+        if (new_set.size() <= tries / expected_sets * 0.5) {
             logWarning("Set must be wrong, contains too few addresses (%lu). Try again...\n", new_set.size());
             goto search_set;
         }
