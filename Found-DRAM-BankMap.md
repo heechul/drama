@@ -67,8 +67,25 @@ Inferred mapping:
 21
 
 ## Raspberry Pi 3
+
 ## Raspberry Pi 4 (2GB)
-$ sudo ./mc-mapping-pagemap -n 2  -p 0.7
+drama/re$ sudo ./measure -s 16
+...
+reduced to 5 functions
+Bits: 1, sz=5
+11  (Correct: 100%)
+12  (Correct: 100%)
+13  (Correct: 100%)
+14  (Correct: 100%)
+Bits: 2, sz=10
+Bits: 3, sz=10
+Bits: 4, sz=5
+Bits: 5, sz=1
+Bits: 6, sz=0
+Bits: 7, sz=0
+Finishing
+
+palloc/$ sudo ./mc-mapping-pagemap -n 2  -p 0.7
 Bit6: 309.34 MB/s, 206.89 ns
 Bit7: 315.81 MB/s, 202.65 ns
 Bit8: 318.90 MB/s, 200.69 ns
@@ -93,6 +110,8 @@ Inferred mappnig:
 
 
 ## NVIDIA Jetson Nano
+
 ## NVIDIA Jetson TX2
+
 ## NVIDIA Jetson Xavier
 
