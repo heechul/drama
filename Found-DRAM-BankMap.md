@@ -108,6 +108,52 @@ Bit23: 309.75 MB/s, 206.62 ns
 Inferred mappnig:
 11, 12, 13, 14
 
+## Raspberry Pi 4 (4GB)
+
+	drama/re$ sudo ./measure -s 16
+	...
+	reduced to 4 functions
+	Bits: 1, sz=4
+	11  (Correct: 100%)
+	12  (Correct: 100%)
+	13  (Correct: 100%)
+	14  (Correct: 100%)
+	Bits: 2, sz=6
+	Bits: 3, sz=4
+	Bits: 4, sz=1
+	Bits: 5, sz=0
+	Bits: 6, sz=0
+	Bits: 7, sz=0
+	Finishing
+
+	palloc/$ sudo ./mc-mapping-pagemap -n 3 -p 0.7
+	mem_size (MB): 2655
+	allocation complete.
+	worker thread begins
+	worker thread begins
+	worker thread begins
+	Bit6: 327.00 MB/s, 195.72 ns
+	Bit7: 319.04 MB/s, 200.60 ns
+	Bit8: 317.86 MB/s, 201.35 ns
+	Bit9: 323.99 MB/s, 197.54 ns
+	Bit10: 327.19 MB/s, 195.60 ns
+	Bit11: 395.38 MB/s, 161.87 ns
+	Bit12: 347.05 MB/s, 184.41 ns
+	Bit13: 493.28 MB/s, 129.74 ns
+	Bit14: 467.45 MB/s, 136.91 ns
+	Bit15: 316.39 MB/s, 202.28 ns
+	Bit16: 317.29 MB/s, 201.71 ns
+	Bit17: 315.36 MB/s, 202.94 ns
+	Bit18: 313.01 MB/s, 204.47 ns
+	Bit19: 315.52 MB/s, 202.84 ns
+	Bit20: 311.93 MB/s, 205.17 ns
+	Bit21: 319.72 MB/s, 200.18 ns
+	Bit22: 317.66 MB/s, 201.48 ns
+	Bit23: 318.08 MB/s, 201.21 ns
+
+Inferred mapping:
+11, 12, 13, 14
+
 
 ## NVIDIA Jetson Nano
 
