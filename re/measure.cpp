@@ -28,7 +28,7 @@
 
 
 #if defined(__aarch64__)
-#define USE_MEDIAN         1
+#define USE_MEDIAN         0
 #endif
 #define USE_KAM            0    // require to load kam.ko (github.com/heechul/bank_test)
 #define DISPLAY_PROGRESS   1    // reamining time update.
@@ -40,8 +40,8 @@
 int verbosity = 4;
 
 // default values
-size_t num_reads_outer = 10;
-size_t num_reads_inner = 10;
+size_t num_reads_outer = 4;
+size_t num_reads_inner = 1000;
 size_t mapping_size = (1<<23); // 8MB default
 size_t expected_sets = 16;
 int g_start_bit = 11; // search start bit
@@ -207,30 +207,14 @@ long utime() {
 
 // ----------------------------------------------
 
-#if defined(__aarch64__)
-#define USE_FAST_COUNTER   1
-
-static volatile uint64_t counter = 0;
-static pthread_t count_thread;
-
-static void *countthread(void *dummy) {
-    uint64_t local_counter = 0;
-    while (1) {
-#if USE_FAST_COUNTER==1
-        local_counter++;
-        counter = local_counter;
-#else
-        counter++;
-#endif
-    }
-    return NULL;
-}
-#endif
+#define TIMER_RESOLUTION_AMPLIFIER 25
 
 uint64_t rdtsc() {
 #if defined(__aarch64__)
-    asm volatile ("DSB SY");	
-    return counter;
+    uint64_t val;
+    asm volatile ("DSB SY");
+    asm volatile("mrs %0, cntvct_el0" : "=r" (val));
+    return val * TIMER_RESOLUTION_AMPLIFIER;
 #else    
     uint64_t a, d;
     asm volatile ("xor %%rax, %%rax\n" "cpuid"::: "rax", "rbx", "rcx", "rdx");
@@ -243,7 +227,10 @@ uint64_t rdtsc() {
 // ----------------------------------------------
 uint64_t rdtsc2() {
 #if defined(__aarch64__)
-    return rdtsc();
+    uint64_t val;
+    asm volatile("mrs %0, cntvct_el0" : "=r" (val));
+    asm volatile ("DSB SY");
+    return val * TIMER_RESOLUTION_AMPLIFIER;
 #else
     uint64_t a, d;
     asm volatile ("rdtscp" : "=a" (a), "=d" (d) : : "rcx");
@@ -253,6 +240,15 @@ uint64_t rdtsc2() {
 #endif
 }
 
+static inline __attribute__((always_inline)) void clflush(volatile void *p)
+{
+#if defined(__aarch64__)
+    asm volatile("DC CIVAC, %[ad]" : : [ad] "r" (p) : "memory");
+#else
+    asm volatile("clflush (%0)\n"
+		 :: "r" (p) : "memory");
+#endif
+}
 
 size_t low_thresh = 0, high_thresh = WINT_MAX;
 
@@ -283,14 +279,8 @@ uint64_t getTiming(pointer first, pointer second) {
             *s;
             *(s + number_of_reads);
 
-#if defined(__aarch64__)
-            asm volatile("DC CIVAC, %[ad]" : : [ad] "r" (f) : "memory");
-            asm volatile("DC CIVAC, %[ad]" : : [ad] "r" (s) : "memory");
-#else
-            asm volatile("clflush (%0)" : : "r" (f) : "memory");
-            asm volatile("clflush (%0)" : : "r" (s) : "memory");
-            asm volatile("mfence");
-#endif
+	    clflush(f);
+	    clflush(s);
         }
 
         uint64_t res = (rdtsc2() - t0) / (num_reads_inner);
@@ -581,19 +571,6 @@ int main(int argc, char *argv[]) {
 
     setpriority(PRIO_PROCESS, 0, -20);
 
-#if defined(__aarch64__)
-    int rr = pthread_create(&count_thread, 0, countthread , 0);
-    if (rr != 0) {
-        return -1;
-    }
-    logDebug("%s\n", "Waiting the counter thread...");
-    while(counter == 0) {
-        asm volatile("DSB SY");
-    }
-    logDebug("Done: %ld\n", counter);    
-#endif
-
-
     t = getTiming(base, base + sizeof(size_t));
     low_thresh = t * 0.5;
     high_thresh = t * 3;
@@ -750,7 +727,7 @@ int main(int argc, char *argv[]) {
 	logInfo("found(cycles): %d newset_sz: %lu (expected_sz: %lu) pool_sz: %lu\n",
                  found, new_set.size(), tries/expected_sets, addr_pool.size());
 
-        if (new_set.size() <= tries / expected_sets * 0.8) {
+        if (new_set.size() <= tries / expected_sets * 0.2) {
             logWarning("Set must be wrong, contains too few addresses (%lu). Try again...\n", new_set.size());
             goto search_set;
         }
