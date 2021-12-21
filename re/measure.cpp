@@ -274,10 +274,10 @@ uint64_t getTiming(pointer first, pointer second) {
 
         while (number_of_reads-- > 0) {
             *f;
-            *(f + number_of_reads);
+            // *(f + number_of_reads);
 
             *s;
-            *(s + number_of_reads);
+            // *(s + number_of_reads);
 
 	    clflush(f);
 	    clflush(s);
