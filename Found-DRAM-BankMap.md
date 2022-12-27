@@ -43,6 +43,29 @@
 	16 XOR 20
 	17 XOR 21
 
+## Dell E6420 (i5-2520M, 16GB, 2-dimms, Sandybridge)
+
+	sudo sysctl -w vm.nr_hugepages=1024
+	sudo ./measure -r -m 2048 -t 390 > log
+	tail log
+
+	Bits: 2, sz=4
+	14 18  (Correct: 50%)
+	15 19  (Correct: 50%)
+	16 20  (Correct: 100%)
+	17 21  (Correct: 50%)
+	Bits: 3, sz=0
+	Bits: 4, sz=6
+	Bits: 5, sz=0
+	Bits: 6, sz=4
+	Bits: 7, sz=0
+
+	Interferred mapping:
+	14 XOR 18
+	15 XOR 19
+	16 XOR 20
+	17 XOR 21
+
 ## Intel Nehalem  (2xdimms) 
 
 	Bits: 1, sz=5
