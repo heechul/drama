@@ -30,7 +30,6 @@
 #if defined(__aarch64__)
 #define USE_MEDIAN         1
 #endif
-#define USE_KAM            0    // require to load kam.ko (github.com/heechul/bank_test)
 #define DISPLAY_PROGRESS   1    // reamining time update.
 #define MAX_OUTER_LOOP     1000
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
@@ -41,11 +40,11 @@ int verbosity = 4;
 
 // default values
 size_t num_reads_outer = 10;
-size_t num_reads_inner = 10;
-size_t mapping_size = (1<<23); // 8MB default
+size_t num_reads_inner = 1;
+size_t mapping_size = (1<<30); // 1GB default
 size_t expected_sets = 16;
 int g_start_bit = 11; // search start bit
-int g_use_linear_addr = 1;
+int g_use_linear_addr = 0;
 int g_display_progress = 1;
 int g_use_kam = 0;
 
@@ -97,75 +96,40 @@ const char *getCPUModel() {
 uint64_t phy_start_addr;
 
 void setupMapping() {
-    if (g_use_kam) {
-        int fd = open("/dev/kam", O_RDWR);
-        if (fd < 0) {
-            fprintf(stderr, "Couldn't open device file\n");
-            exit(1);
-        }
-
+ 
+    // try 1GB huge page
+    mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE |
+                    (30 << MAP_HUGE_SHIFT), -1, 0);
+    if ((void *)mapping == MAP_FAILED) {
+        // try 2MB huge page
         mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
-                       MAP_SHARED, fd, 0);
-
-        /* We don't close the file. We let it close when exit */
-        if (mapping == MAP_FAILED) {
-            perror("Couldn't allocate memory from device\n");
-            exit(2);
-        }
-
-        // Get the physcal address of start address
-        int iret = ioctl(fd, 0, &phy_start_addr);
-        if (iret < 0) {
-            perror("Couldn't find the physical address of start\n");
-            exit(3);
-        }
-    
-        // *(int *)ret = 0x12345678;
-        logDebug("Value [%p]=%x\n", mapping, *(int *)mapping);
-    
-        logDebug("%s", "Initialize large memory block...\n");
-        for (size_t index = 0; index < mapping_size; index += 0x1000) {
-            pointer *temporary =
-                reinterpret_cast<pointer *>(static_cast<uint8_t *>(mapping)
-                                            + index);
-            temporary[0] = index;
-        }
-        logDebug("%s", " done!\n");
-    } else {
-        // try 1GB huge page
-        mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
-                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE |
-                       (30 << MAP_HUGE_SHIFT), -1, 0);
+                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE,
+                        -1, 0);
         if ((void *)mapping == MAP_FAILED) {
-            // try 2MB huge page
+            // nomal page allocation
             mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
-                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE,
-                           -1, 0);
+                            MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
             if ((void *)mapping == MAP_FAILED) {
-                // nomal page allocation
-                mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
-                               MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
-                if ((void *)mapping == MAP_FAILED) {
-                    perror("alloc failed");
-                    exit(1);
-                } else
-                    logInfo("%s small page mapping\n", "4KB");
+                perror("alloc failed");
+                exit(1);
             } else
-                logInfo("%s huge page mapping\n", "2MB");
+                logInfo("%s small page mapping\n", "4KB");
         } else
-            logInfo("%s huge page mapping\n", "1GB");
+            logInfo("%s huge page mapping\n", "2MB");
+    } else
+        logInfo("%s huge page mapping\n", "1GB");
 
-        assert(mapping != (void *) -1);
+    assert(mapping != (void *) -1);
 
-        logDebug("%s", "Initialize large memory block...\n");
-        for (size_t index = 0; index < mapping_size; index += 0x1000) {
-            pointer *temporary =
-                reinterpret_cast<pointer *>(static_cast<uint8_t *>(mapping)
-                                            + index);
-            temporary[0] = index;
-        }
-        logDebug("%s", " done!\n");
-    }        
+    logDebug("%s", "Initialize large memory block...\n");
+    for (size_t index = 0; index < mapping_size; index += 0x1000) {
+        pointer *temporary =
+            reinterpret_cast<pointer *>(static_cast<uint8_t *>(mapping)
+                                        + index);
+        temporary[0] = index;
+    }
+    logDebug("%s", " done!\n");
 }
 
 // ----------------------------------------------
@@ -254,17 +218,22 @@ uint64_t rdtsc2() {
 }
 
 
-size_t low_thresh = 0, high_thresh = WINT_MAX;
-
 static int comparator(const void *p, const void *q)
 {
   return *(int *)p > *(int *)q;
 }
 
+static inline void myflush(volatile void *p) {
+#if defined(__aarch64__)
+    asm volatile("DC CIVAC, %[ad]" : : [ad] "r" (p) : "memory");
+#else
+    asm volatile("clflush (%0)" : : "r" (p) : "memory");
+#endif
+}
+
 // ----------------------------------------------
 uint64_t getTiming(pointer first, pointer second) {
     size_t min_res = (-1ull);
-    size_t ticks[MAX_OUTER_LOOP];
     assert(num_reads_outer <= MAX_OUTER_LOOP);
 
     for (int i = 0; i < num_reads_outer; i++) {
@@ -272,46 +241,25 @@ uint64_t getTiming(pointer first, pointer second) {
         volatile size_t *f = (volatile size_t *) first;
         volatile size_t *s = (volatile size_t *) second;
 
-        sched_yield();
-        
+        *f;
+        *s;
+        myflush(f);
+        myflush(s);
+
         size_t t0 = rdtsc();
 
         while (number_of_reads-- > 0) {
             *f;
-            *(f + number_of_reads);
-
             *s;
-            *(s + number_of_reads);
-
-#if defined(__aarch64__)
-            asm volatile("DC CIVAC, %[ad]" : : [ad] "r" (f) : "memory");
-            asm volatile("DC CIVAC, %[ad]" : : [ad] "r" (s) : "memory");
-#else
-            asm volatile("clflush (%0)" : : "r" (f) : "memory");
-            asm volatile("clflush (%0)" : : "r" (s) : "memory");
-            asm volatile("mfence");
-#endif
+            myflush(f);
+            myflush(s);
         }
 
         uint64_t res = (rdtsc2() - t0) / (num_reads_inner);
 
-#if USE_MEDIAN==1
-        if (res <= low_thresh || res > high_thresh) {
-            i--;	
-            continue;
-        }
-        ticks[i] = res;
-#else        
         if (res < min_res)
             min_res = res;
-#endif
     }
-
-#if USE_MEDIAN==1
-    qsort((void *)ticks, num_reads_outer, sizeof(ticks[0]), comparator);
-    min_res = ticks[num_reads_outer/2];
-#endif
-    
     return min_res;
 }
 
@@ -489,9 +437,6 @@ int main(int argc, char *argv[]) {
         case 'j':
             num_reads_inner = atol(optarg);
             break;
-        case 'k':
-            g_use_kam = 1;
-            break;
         case 's':
             expected_sets = atoi(optarg);
             break;
@@ -594,12 +539,10 @@ int main(int argc, char *argv[]) {
 #endif
 
 
+    // row hit timing
     t = getTiming(base, base + sizeof(size_t));
-    low_thresh = t * 0.5;
-    high_thresh = t * 3;
-    logInfo("Average cycles: %ld  low_threshold: %ld high_threshold: %ld\n",
-            t, low_thresh, high_thresh);
-    
+    logInfo("Average ROW hit cycles: %ld \n", t);
+
     int failed;
     uint64_t sum_ticks = 0, measure_count = 0;
 
@@ -619,7 +562,6 @@ int main(int argc, char *argv[]) {
         remaining_tries = addr_pool.size(); // tries;
 
         // measure access times
-        sched_yield();
         std::set <addrpair> used_addr;
         used_addr.clear();
         while (--remaining_tries) {
