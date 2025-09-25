@@ -36,17 +36,15 @@
 #define MAX_XOR_BITS       7    // orig: 7
 
 // ------------ global settings ----------------
-int verbosity = 4;
+int verbosity = 1;
 
 // default values
 size_t num_reads_outer = 10;
 size_t num_reads_inner = 1;
 size_t mapping_size = (1<<30); // 1GB default
 size_t expected_sets = 16;
-int g_start_bit = 11; // search start bit
-int g_use_linear_addr = 0;
-int g_display_progress = 1;
-int g_use_kam = 0;
+int g_start_bit = 6; // search start bit
+int g_display_progress = 0;
 
 // ----------------------------------------------
 
@@ -138,20 +136,16 @@ size_t frameNumberFromPagemap(size_t value) {
 }
 
 pointer getPhysicalAddr(pointer virtual_addr) {
-    if (g_use_kam) {
-        return (virtual_addr - (unsigned long int)mapping) + phy_start_addr;
-    } else {
-        pointer value;
-        off_t offset = (virtual_addr / 4096) * sizeof(value);
-        int got = pread(g_pagemap_fd, &value, sizeof(value), offset);
-        assert(got == 8);
+    pointer value;
+    off_t offset = (virtual_addr / 4096) * sizeof(value);
+    int got = pread(g_pagemap_fd, &value, sizeof(value), offset);
+    assert(got == 8);
 
-        // Check the "page present" flag.
-        assert(value & (1ULL << 63));
+    // Check the "page present" flag.
+    assert(value & (1ULL << 63));
 
-        pointer frame_num = frameNumberFromPagemap(value);
-        return (frame_num * 4096) | (virtual_addr & (4095));
-    }
+    pointer frame_num = frameNumberFromPagemap(value);
+    return (frame_num * 4096) | (virtual_addr & (4095));
 }
 
 // ----------------------------------------------
@@ -420,7 +414,7 @@ int main(int argc, char *argv[]) {
     int c;
     int samebank_threshold = -1;
 
-    while ((c = getopt(argc, argv, "b:d:m:i:j:ks:t:rv:")) != EOF) {
+    while ((c = getopt(argc, argv, "b:d:m:i:j:ks:t:v:")) != EOF) {
         switch (c) {
         case 'b':
             g_start_bit = atof(optarg);
@@ -442,9 +436,6 @@ int main(int argc, char *argv[]) {
             break;
         case 't':
             samebank_threshold = atoi(optarg);
-            break;
-        case 'r':
-            g_use_linear_addr = 0;
             break;
         case 'v':
             verbosity = atoi(optarg);
@@ -487,40 +478,20 @@ int main(int argc, char *argv[]) {
     int found_sets = 0;
     int found_siblings = 0;
 
-    logInfo("Address pool method: %s\n", (g_use_linear_addr)?"linear":"random");
-    if (g_use_linear_addr) {
-        tries = mapping_size / (1<<g_start_bit);
+    tries = expected_sets * 125; // DEBUG: original 125.
 
-        base = (pointer)mapping;
-        base_phys = getPhysicalAddr(base);
-        
-        while (addr_pool.size() < tries) {
-            int idx = addr_pool.size();
-            second = base + idx * (1<<g_start_bit);
-            second_phys = getPhysicalAddr(second); 
-#if 0
-            logDebug("addr_pool[%ld]: 0x%0lx Bank %d\n",
-                     addr_pool.size(), second_phys, get_bank_num(second_phys));
-#endif
-            addr_pool.insert(std::make_pair(second, second_phys));
-        }
-    } else {
-        tries = expected_sets * 125; // DEBUG: original 125.
-    
-        // build address pool
-        while (int cur_count = addr_pool.size() < tries) {
-            getRandomAddress(&second, &second_phys);
-            addr_pool.insert(std::make_pair(second, second_phys));
-            // if (cur_count != addr_pool.size())
-            //     logDebug("addr_pool[%ld]: 0x%0lx Bank %d\n",
-            //              addr_pool.size(), second_phys, get_bank_num(second_phys));
-        }
-
-        auto ait = addr_pool.begin();
-        // std::advance(ait, rand() % addr_pool.size());
-        base = ait->first;
-        base_phys = ait->second;
+    // build address pool
+    while (int cur_count = addr_pool.size() < tries) {
+        getRandomAddress(&second, &second_phys);
+        addr_pool.insert(std::make_pair(second, second_phys));
+        if (cur_count != addr_pool.size())
+            logDebug("addr_pool[%ld]: 0x%0lx\n", addr_pool.size(), second_phys);
     }
+
+    auto ait = addr_pool.begin();
+    // std::advance(ait, rand() % addr_pool.size());
+    base = ait->first;
+    base_phys = ait->second;
 
     logDebug("Address pool size: %lu\n", addr_pool.size());
 
@@ -565,14 +536,11 @@ int main(int argc, char *argv[]) {
         std::set <addrpair> used_addr;
         used_addr.clear();
         while (--remaining_tries) {
-            sched_yield();
+            // sched_yield();
             time_start = utime();
 
             // get random address from address pool (prevents any prefetch or something)
             auto pool_front = addr_pool.begin();
-            if (0) // g_use_linear_addr)
-                std::advance(pool_front, (addr_pool.size()-remaining_tries));
-            else
                 std::advance(pool_front, rand() % addr_pool.size());
 
             first = pool_front->first;
@@ -623,7 +591,7 @@ int main(int argc, char *argv[]) {
         int max = 0;
         int max_v = 0;
         for (hit = timing.begin(); hit != timing.end(); hit++) {
-	    assert(hit->first < MAX_HIST_SIZE);
+	        assert(hit->first < MAX_HIST_SIZE);
             hist[hit->first] = hit->second.size();
             if (hit->first > max)
                 max = hit->first;
@@ -656,7 +624,6 @@ int main(int argc, char *argv[]) {
         if (samebank_threshold > 0) {
             found = samebank_threshold;
         } else {
-#if 0
             for (int i = max; i >= min; i--) {
                 if (hist[i] <= 1)
                     empty++;
@@ -672,9 +639,6 @@ int main(int argc, char *argv[]) {
                 logWarning("%s\n", "No set found, trying again...");
                 goto search_set;
             }
-#else
-            found = (sum_ticks / measure_count) * 135 / 100;
-#endif
         }
 
         new_set.push_back(base_phys); // this is needed. another bug in the original code
@@ -689,20 +653,17 @@ int main(int argc, char *argv[]) {
             }
         }
 
-	logInfo("found(cycles): %d newset_sz: %lu (expected_sz: %lu) pool_sz: %lu\n",
+	    logInfo("found(cycles): %d newset_sz: %lu (expected_sz: %lu) pool_sz: %lu\n",
                  found, new_set.size(), tries/expected_sets, addr_pool.size());
 
-        if (new_set.size() <= tries / expected_sets * 0.8) {
+        if (new_set.size() <= tries / expected_sets * 0.1) {
             logWarning("Set must be wrong, contains too few addresses (%lu). Try again...\n", new_set.size());
             goto search_set;
         }
-        if (new_set.size() > tries / expected_sets * 1.2) {
-            /* addr_pool.size() / expected..*/
-	    logWarning("Set must be wrong, contains too many addresses (expected: %lu/found: %ld). Try again...\n", tries / expected_sets, new_set.size());
-
+        if (new_set.size() > tries / expected_sets * 2) {
+	        logWarning("Set must be wrong, contains too many addresses (expected: %lu/found: %ld). Try again...\n", tries / expected_sets, new_set.size());
             goto search_set;
         }
-
 
         for (auto it = addr_pool.begin(); it != addr_pool.end();) {
             int erased = 0;
@@ -736,10 +697,13 @@ int main(int argc, char *argv[]) {
     for (int set = 0; set < sets.size(); set++) {
         logInfo("Set %d: 0x%lx count: %ld\n",
                 set + 1, sets[set][0], sets[set].size());
-        // for (int j = 0; j < sets[set].size(); j++) {
-        //     logDebug("  0x%lx Bank %d\n",
-        //              sets[set][j], get_bank_num(sets[set][j]));
-        // }
+        char filename[100];
+        sprintf(filename, "set%d.txt", set + 1);
+        FILE *f = fopen(filename, "a");
+        for (int j = 0; j < sets[set].size(); j++) {
+            fprintf(f, "  0x%lx\n", sets[set][j]);
+        }
+        fclose(f);
     }
     
     // try to find a xor function
