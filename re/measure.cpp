@@ -33,6 +33,7 @@
 
 // ------------ global settings ----------------
 int verbosity = 1;
+size_t g_page_size;
 
 // default values
 size_t num_reads_outer = 10;
@@ -108,7 +109,7 @@ void setupMapping() {
                 perror("alloc failed");
                 exit(1);
             } else
-                logInfo("%s small page mapping\n", "4KB");
+                logInfo("small page mapping (%zu KB)\n", g_page_size / 1024);
         } else
             logInfo("%s huge page mapping\n", "2MB");
     } else
@@ -117,7 +118,7 @@ void setupMapping() {
     assert(mapping != (void *) -1);
 
     logDebug("%s", "Initialize large memory block...\n");
-    for (size_t index = 0; index < mapping_size; index += 0x1000) {
+    for (size_t index = 0; index < mapping_size; index += g_page_size) {
         pointer *temporary =
             reinterpret_cast<pointer *>(static_cast<uint8_t *>(mapping)
                                         + index);
@@ -133,7 +134,7 @@ size_t frameNumberFromPagemap(size_t value) {
 
 pointer getPhysicalAddr(pointer virtual_addr) {
     pointer value;
-    off_t offset = (virtual_addr / 4096) * sizeof(value);
+    off_t offset = (virtual_addr / g_page_size) * sizeof(value);
     int got = pread(g_pagemap_fd, &value, sizeof(value), offset);
     assert(got == 8);
 
@@ -141,7 +142,7 @@ pointer getPhysicalAddr(pointer virtual_addr) {
     assert(value & (1ULL << 63));
 
     pointer frame_num = frameNumberFromPagemap(value);
-    return (frame_num * 4096) | (virtual_addr & (4095));
+    return (frame_num * g_page_size) | (virtual_addr & (g_page_size - 1));
 }
 
 // ----------------------------------------------
@@ -442,10 +443,8 @@ int main(int argc, char *argv[]) {
             break;
         default:
             printf(
-                "Usage %s [-m <memory size in MB>] [-i <number of outer loops>] [-j <number of inner loops>] [-s <expected sets>] [-t <threshold cycles> [-k] [-r]]\n",
+                "Usage %s [-m <memory size in MB>] [-i <number of outer loops>] [-j <number of inner loops>] [-s <expected sets>] [-t <threshold cycles>]\n",
                 argv[0]);
-            printf("-k : use KAM module\n");
-            printf("-r : use random addresses\n");
             exit(0);
             break;
         }
@@ -456,6 +455,7 @@ int main(int argc, char *argv[]) {
     logDebug("Expected sets: %lu\n", expected_sets);
 
     srand(time(NULL));
+    g_page_size = sysconf(_SC_PAGESIZE);
     initPagemap();
     setupMapping();
 
