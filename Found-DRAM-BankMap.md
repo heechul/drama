@@ -180,6 +180,32 @@ Inferred mapping:
 
 ## NVIDIA Jetson Nano
 
+sudo ./measure -s 16 -j 20 -t 90 -v 3 > log.txt
+
+reduced to 5 functions
+Bits: 1, sz=1
+Bits: 2, sz=0
+Bits: 3, sz=0
+Bits: 4, sz=0
+Bits: 5, sz=0
+Bits: 6, sz=0
+Bits: 7, sz=0
+Bits: 8, sz=1
+13 19 20 21 24 25 26 28  (Correct: 93%)
+Bits: 9, sz=3
+10 12 14 16 17 21 25 27 28  (Correct: 93%)
+10 16 17 18 22 23 27 29 30  (Correct: 93%)
+Bits: 10, sz=5
+10 11 13 15 16 20 22 24 25 29  (Correct: 93%)
+Bits: 11, sz=7
+Bits: 12, sz=6
+
+Infered mapping:
+  bank bit 0: XOR (13 19 20 21 24 25 26 28)
+  bank bit 1: XOR (10 12 14 16 17 21 25 27 28)
+  bank bit 2: XOR (10 16 17 18 22 23 27 29 30)
+  bank bit 3: XOR (10 11 13 15 16 20 22 24 25 29)
+  
 ## NVIDIA Jetson TX2
 
 ## NVIDIA Jetson Xavier
