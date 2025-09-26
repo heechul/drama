@@ -163,7 +163,7 @@ long utime() {
 // ----------------------------------------------
 
 #if defined(__aarch64__)
-#define USE_FAST_COUNTER   1
+#define USE_TIMER_THREAD    0
 
 static volatile uint64_t counter = 0;
 static pthread_t count_thread;
@@ -171,21 +171,22 @@ static pthread_t count_thread;
 static void *countthread(void *dummy) {
     uint64_t local_counter = 0;
     while (1) {
-#if USE_FAST_COUNTER==1
         local_counter++;
         counter = local_counter;
-#else
-        counter++;
-#endif
     }
     return NULL;
 }
 #endif
 
 uint64_t rdtsc() {
-#if defined(__aarch64__)
+#if defined(__aarch64__) && USE_TIMER_THREAD==1
     asm volatile ("DSB SY");	
     return counter;
+#elif defined(__aarch64__) && USE_TIMER_THREAD==0
+    uint64_t virtual_timer_value;
+    asm volatile("isb");
+    asm volatile("mrs %0, cntvct_el0" : "=r" (virtual_timer_value));
+    return virtual_timer_value;
 #else    
     uint64_t a, d;
     asm volatile ("xor %%rax, %%rax\n" "cpuid"::: "rax", "rbx", "rcx", "rdx");
@@ -246,7 +247,7 @@ uint64_t getTiming(pointer first, pointer second) {
             myflush(s);
         }
 
-        uint64_t res = (rdtsc2() - t0) / (num_reads_inner);
+        uint64_t res = (rdtsc2() - t0);
 
         if (res < min_res)
             min_res = res;
@@ -410,11 +411,15 @@ int main(int argc, char *argv[]) {
     size_t hist[MAX_HIST_SIZE];
     int c;
     int samebank_threshold = -1;
+    int cpu_affinity = -1;
 
-    while ((c = getopt(argc, argv, "b:d:m:i:j:ks:t:v:")) != EOF) {
+    while ((c = getopt(argc, argv, "b:c:d:m:i:j:ks:t:v:")) != EOF) {
         switch (c) {
         case 'b':
             g_start_bit = atof(optarg);
+            break;
+        case 'c':
+            cpu_affinity = atol(optarg);
             break;
         case 'd':
             g_display_progress = atoi(optarg);
@@ -453,6 +458,26 @@ int main(int argc, char *argv[]) {
     logDebug("CPU: %s\n", getCPUModel());
     logDebug("Number of reads: %lu x %lu\n", num_reads_outer, num_reads_inner)
     logDebug("Expected sets: %lu\n", expected_sets);
+
+    // affinity to core cpu_affinity
+    if (cpu_affinity < 0) {
+        cpu_affinity = 0;
+    }
+    logDebug("Setting CPU affinity to core %d\n", cpu_affinity);
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(cpu_affinity, &set);
+    if (sched_setaffinity(0, sizeof(cpu_set_t), &set) != 0) {
+        perror("sched_setaffinity");
+        exit(1);
+    }
+
+    // check mapping size
+    if (mapping_size > getPhysicalMemorySize() / 2) {
+        logWarning("Mapping size is too large, reducing to %zu MB\n",
+                   getPhysicalMemorySize() / 2 / 1024 / 1024);
+        mapping_size = getPhysicalMemorySize() / 2;
+    }
 
     srand(time(NULL));
     g_page_size = sysconf(_SC_PAGESIZE);
@@ -493,7 +518,7 @@ int main(int argc, char *argv[]) {
 
     setpriority(PRIO_PROCESS, 0, -20);
 
-#if defined(__aarch64__)
+#if defined(__aarch64__) && USE_TIMER_THREAD==1
     int rr = pthread_create(&count_thread, 0, countthread , 0);
     if (rr != 0) {
         return -1;
@@ -507,7 +532,7 @@ int main(int argc, char *argv[]) {
 
 
     // row hit timing
-    t = getTiming(base, base + sizeof(size_t));
+    t = getTiming(base, base + 64);
     logInfo("Average ROW hit cycles: %ld \n", t);
 
     int failed;
