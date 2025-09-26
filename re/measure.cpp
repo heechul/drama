@@ -555,7 +555,7 @@ int main(int argc, char *argv[]) {
 
             // get random address from address pool (prevents any prefetch or something)
             auto pool_front = addr_pool.begin();
-                std::advance(pool_front, rand() % addr_pool.size());
+            std::advance(pool_front, rand() % addr_pool.size());
 
             first = pool_front->first;
             first_phys = pool_front->second;
@@ -699,10 +699,10 @@ int main(int argc, char *argv[]) {
         
         // choose base address from remaining addresses
         auto ait = addr_pool.begin();
-        // std::advance(ait, rand() % addr_pool.size());
+        std::advance(ait, rand() % addr_pool.size());
         base = ait->first;
         base_phys = ait->second;
-
+        addr_pool.erase(ait);
         found_sets++;
     }
     logDebug("Done measuring. found_sets: %d found_siblings: %d\n",
