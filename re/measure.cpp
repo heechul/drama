@@ -210,12 +210,7 @@ uint64_t rdtsc2() {
 }
 
 
-static int comparator(const void *p, const void *q)
-{
-  return *(int *)p > *(int *)q;
-}
-
-static inline void myflush(volatile void *p) {
+static inline void clflush(volatile void *p) {
 #if defined(__aarch64__)
     asm volatile("DC CIVAC, %[ad]" : : [ad] "r" (p) : "memory");
 #else
@@ -235,16 +230,16 @@ uint64_t getTiming(pointer first, pointer second) {
 
         *f;
         *s;
-        myflush(f);
-        myflush(s);
+        clflush(f);
+        clflush(s);
 
         size_t t0 = rdtsc();
 
         while (number_of_reads-- > 0) {
             *f;
             *s;
-            myflush(f);
-            myflush(s);
+            clflush(f);
+            clflush(s);
         }
 
         uint64_t res = (rdtsc2() - t0);
@@ -505,8 +500,8 @@ int main(int argc, char *argv[]) {
     while (int cur_count = addr_pool.size() < tries) {
         getRandomAddress(&second, &second_phys);
         addr_pool.insert(std::make_pair(second, second_phys));
-        if (cur_count != addr_pool.size())
-            logDebug("addr_pool[%ld]: 0x%0lx\n", addr_pool.size(), second_phys);
+        // if (cur_count != addr_pool.size())
+        //     logDebug("addr_pool[%ld]: 0x%0lx\n", addr_pool.size(), second_phys);
     }
 
     auto ait = addr_pool.begin();
@@ -554,8 +549,6 @@ int main(int argc, char *argv[]) {
         remaining_tries = addr_pool.size(); // tries;
 
         // measure access times
-        std::set <addrpair> used_addr;
-        used_addr.clear();
         while (--remaining_tries) {
             // sched_yield();
             time_start = utime();
