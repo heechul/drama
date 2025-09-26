@@ -546,19 +546,15 @@ int main(int argc, char *argv[]) {
         logInfo("Searching for set %d (try %d): base_phy=0x%lx\n",
                 found_sets + 1, failed, base_phys);
         timing.clear();
-        remaining_tries = addr_pool.size(); // tries;
 
-        // measure access times
-        while (--remaining_tries) {
+        auto pool_it = addr_pool.begin();
+        // iterate over the addr_pool and measure access times
+        while (pool_it != addr_pool.end()) {
             // sched_yield();
             time_start = utime();
 
-            // get random address from address pool (prevents any prefetch or something)
-            auto pool_front = addr_pool.begin();
-            std::advance(pool_front, rand() % addr_pool.size());
-
-            first = pool_front->first;
-            first_phys = pool_front->second;
+            first = pool_it->first;
+            first_phys = pool_it->second;
 
             // measure timing
             // sched_yield();
@@ -595,6 +591,9 @@ int main(int argc, char *argv[]) {
                 }
                 fflush(stdout);
             }
+
+            // advance iterator
+            pool_it++;
         }
         printf("\n");
 
