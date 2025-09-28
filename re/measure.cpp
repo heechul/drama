@@ -42,6 +42,7 @@ size_t mapping_size = (1<<30); // 1GB default
 size_t expected_sets = 16;
 int g_start_bit = 6; // search start bit
 int g_display_progress = 0;
+char* g_output_file = nullptr;
 
 // ----------------------------------------------
 
@@ -309,16 +310,6 @@ int apply_bitmask(pointer addr, pointer mask) {
     return xor64(addr & mask);
 }
 
-// for debugging: only valid on raspberry pi 4
-// int get_bank_num(pointer addr) {
-//     int bank =
-//         ((addr >> 11) & 0x1) |
-//         (((addr >> 12) & 0x1) << 1) |
-//         (((addr >> 13) & 0x1) << 2) |
-//         (((addr >> 14) & 0x1) << 3); 
-//     return bank;
-// }
-
 // ----------------------------------------------
 char *name_bits(pointer mask) {
     static char name[256], bn[8];
@@ -399,6 +390,56 @@ std::vector<double> prob_function(std::vector <pointer> masks, int align_bit) {
 }
 
 // ----------------------------------------------
+void save_bank_functions(const char* filename,
+                        const std::map<int, std::vector<pointer>>& functions,
+                        const std::vector<pointer>& false_positives,
+                        const std::map<int, std::vector<pointer>>& duplicates,
+                        const std::map<int, std::vector<double>>& prob) {
+    FILE* fp = fopen(filename, "w");
+    if (!fp) {
+        fprintf(stderr, "Error: Cannot open output file %s for writing\n", filename);
+        return;
+    }
+
+    // Save found functions
+    for (int bits = 1; bits <= MAX_XOR_BITS; bits++) {
+        for (int i = 0; i < functions.at(bits).size(); i++) {
+            bool show = true;
+    
+            // Skip false positives
+            for (int fp = 0; fp < false_positives.size(); fp++) {
+                if ((functions.at(bits)[i] & false_positives[fp]) == false_positives[fp]) {
+                    show = false;
+                    break;
+                }
+            }
+            if (!show) continue;
+
+            // Skip duplicates
+            for (int dup = 0; dup < duplicates.at(bits).size(); dup++) {
+                if (functions.at(bits)[i] == duplicates.at(bits)[dup]) {
+                    show = false;
+                    break;
+                }
+            }
+            if (!show) continue;
+
+            // Write the function to file
+            // Each line contains the physical address bits that are XORed
+            char* bit_string = name_bits(functions.at(bits)[i]);
+            // Remove trailing space
+            if (strlen(bit_string) > 0 && bit_string[strlen(bit_string)-1] == ' ') {
+                bit_string[strlen(bit_string)-1] = '\0';
+            }
+            fprintf(fp, "%s\n", bit_string);
+        }
+    }
+
+    fclose(fp);
+    printf("Bank mapping functions saved to %s\n", filename);
+}
+
+// ----------------------------------------------
 int main(int argc, char *argv[]) {
     size_t tries, t;
     std::set <addrpair> addr_pool;
@@ -408,7 +449,7 @@ int main(int argc, char *argv[]) {
     int samebank_threshold = -1;
     int cpu_affinity = -1;
 
-    while ((c = getopt(argc, argv, "b:c:d:m:i:j:ks:t:v:")) != EOF) {
+    while ((c = getopt(argc, argv, "b:c:d:m:i:j:ks:t:v:f:")) != EOF) {
         switch (c) {
         case 'b':
             g_start_bit = atof(optarg);
@@ -437,13 +478,16 @@ int main(int argc, char *argv[]) {
         case 'v':
             verbosity = atoi(optarg);
             break;
+        case 'f':
+            g_output_file = optarg;
+            break;
         case ':':
             printf("Missing option.\n");
             exit(1);
             break;
         default:
             printf(
-                "Usage %s [-m <memory size in MB>] [-i <number of outer loops>] [-j <number of inner loops>] [-s <expected sets>] [-t <threshold cycles>]\n",
+                "Usage %s [-m <memory size in MB>] [-i <number of outer loops>] [-j <number of inner loops>] [-s <expected sets>] [-t <threshold cycles>] [-f <output file>]\n",
                 argv[0]);
             exit(0);
             break;
@@ -868,6 +912,9 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // Save bank mapping functions to file
+    const char* output_filename = g_output_file ? g_output_file : "map.txt";
+    save_bank_functions(output_filename, functions, false_positives, duplicates, prob);
     
     fprintf(stderr, "Finishing\n");
     exit(1);
