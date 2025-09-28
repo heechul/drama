@@ -756,7 +756,7 @@ int main(int argc, char *argv[]) {
                 set + 1, sets[set][0], sets[set].size());
         char filename[100];
         sprintf(filename, "set%d.txt", set + 1);
-        FILE *f = fopen(filename, "a");
+        FILE *f = fopen(filename, "w"); // overwrite if file exists
         for (int j = 0; j < sets[set].size(); j++) {
             fprintf(f, "  0x%lx\n", sets[set][j]);
         }
