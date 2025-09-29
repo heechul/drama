@@ -587,6 +587,14 @@ int main(int argc, char *argv[]) {
             logWarning("%s\n", "Couldn't find set after 10 tries, giving up, sorry!");
             break;
         }
+
+        // choose base address from remaining addresses
+        auto ait = addr_pool.begin();
+        std::advance(ait, rand() % addr_pool.size());
+        base = ait->first;
+        base_phys = ait->second;
+        addr_pool.erase(ait);
+
         logInfo("Searching for set %d (try %d): base_phy=0x%lx\n",
                 found_sets + 1, failed, base_phys);
         timing.clear();
@@ -739,13 +747,7 @@ int main(int argc, char *argv[]) {
         // save identified set if one was found
         sets.push_back(new_set);
         found_siblings += new_set.size();
-        
-        // choose base address from remaining addresses
-        auto ait = addr_pool.begin();
-        std::advance(ait, rand() % addr_pool.size());
-        base = ait->first;
-        base_phys = ait->second;
-        addr_pool.erase(ait);
+
         found_sets++;
     }
     logDebug("Done measuring. found_sets: %d found_siblings: %d\n",
