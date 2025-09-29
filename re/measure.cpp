@@ -29,7 +29,7 @@
 
 #define MAX_OUTER_LOOP     1000
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
-#define MAX_XOR_BITS       7    // orig: 7
+#define MAX_XOR_BITS       10    // orig: 7
 
 // ------------ global settings ----------------
 int verbosity = 1;
@@ -529,12 +529,6 @@ int main(int argc, char *argv[]) {
     pointer first_phys, second_phys;
     pointer base, base_phys;
 
-    size_t remaining_tries;
-
-    long times[ETA_BUFFER], time_start;
-    int time_ptr = 0;
-    int time_valid = 0;
-
     int found_sets = 0;
     int found_siblings = 0;
 
@@ -575,7 +569,7 @@ int main(int argc, char *argv[]) {
     logInfo("Average ROW hit cycles: %ld \n", t);
 
     int failed;
-    uint64_t sum_ticks = 0, measure_count = 0;
+    uint64_t measure_count = 0;
 
     while (found_sets < expected_sets) {
         for (size_t i = 0; i < MAX_HIST_SIZE; ++i)
@@ -601,53 +595,23 @@ int main(int argc, char *argv[]) {
 
         auto pool_it = addr_pool.begin();
         // iterate over the addr_pool and measure access times
+        measure_count = 0;
         while (pool_it != addr_pool.end()) {
-            // sched_yield();
-            time_start = utime();
 
             first = pool_it->first;
             first_phys = pool_it->second;
 
             // measure timing
-            // sched_yield();
             t = getTiming(base, first);
-            sum_ticks += t;
             measure_count++;
 
             // sched_yield();
             timing[t].push_back(std::make_pair(base_phys, first_phys));
 
-            times[time_ptr] = utime() - time_start;
-            time_ptr++;
-            if (time_ptr == ETA_BUFFER) {
-                time_ptr = 0;
-                time_valid = 1;
-            }
-
-            // sched_yield();
-            if (g_display_progress) {
-                clearLine();
-                if (time_valid) {
-                    long mean = 0;
-                    for (int i = 0; i < ETA_BUFFER; i++) {
-                        mean += times[i];
-                    }
-                    mean /= ETA_BUFFER;
-                    printf("%lu%% (ETA: %s)",
-                           (tries - remaining_tries + 1) * 100 / tries,
-                           formatTime(mean * remaining_tries));
-                } else {
-                    printf("%lu%% (ETA: %c)",
-                           (tries - remaining_tries + 1) * 100 / tries,
-                           "|/-\\"[time_ptr % 4]);
-                }
-                fflush(stdout);
-            }
-
             // advance iterator
             pool_it++;
         }
-        printf("\n");
+        printf("(%lu)\n", measure_count);
 
         // identify sets -> must be on the right, separated in the histogram
         std::vector <pointer> new_set;
@@ -665,13 +629,14 @@ int main(int argc, char *argv[]) {
             if (hit->second.size() > max_v)
                 max_v = hit->second.size();
         }
+        logDebug("Timing histogram: min: %d max: %d max_v: %d\n", min, max, max_v);
 
         // scale histogram
         double scale_v = (double) (100.0)
                          / (max_v > 0 ? (double) max_v : 100.0);
         assert(scale_v >= 0);
-        while (hist[++min] <= 1);
-        while (hist[--max] <= 1);
+        // while (hist[++min] <= 1);
+        // while (hist[--max] <= 1);
 
         // print histogram
         for (size_t i = min; i <= max; i++) {
@@ -730,6 +695,8 @@ int main(int argc, char *argv[]) {
             goto search_set;
         }
 
+        // remove found addresses from pool
+        logDebug("Removing found addresses from pool (%lu) -->", addr_pool.size());
         for (auto it = addr_pool.begin(); it != addr_pool.end();) {
             int erased = 0;
             for (auto nit = new_set.begin(); nit != new_set.end(); nit++) {
@@ -743,6 +710,7 @@ int main(int argc, char *argv[]) {
                 it++;
             }
         }
+        logDebug(" %lu\n", addr_pool.size());
 
         // save identified set if one was found
         sets.push_back(new_set);
