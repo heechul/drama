@@ -185,5 +185,37 @@
 
 ## NVIDIA Jetson TX2
 
-## NVIDIA Jetson Xavier
+## NVIDIA Jetson Orin 
+
+	reduced to 10 functions
+	Bits: 1, sz=2
+	Bits: 2, sz=1
+	Bits: 3, sz=0
+	Bits: 4, sz=0
+	Bits: 5, sz=0
+	Bits: 6, sz=11
+	9 13 17 18 21 22  (Correct: 100%)
+	11 14 16 20 21 22  (Correct: 100%)
+	11 12 13 16 19 24  (Correct: 100%)
+	9 10 11 16 19 26  (Correct: 100%)
+	14 15 17 21 25 28  (Correct: 100%)
+	9 13 23 24 27 28  (Correct: 100%)
+	9 12 17 21 25 29  (Correct: 100%)
+	Bits: 7, sz=36
+	10 11 12 17 19 20 23  (Correct: 100%)
+	Bits: 8, sz=60
+	Bits: 9, sz=92
+	Bits: 10, sz=131
+	Bank mapping functions saved to map.txt
+	Finishing
+
+	Infered mapping:
+	9 13 17 18 21 22
+	11 14 16 20 21 22
+	11 12 13 16 19 24
+	9 10 11 16 19 26
+	14 15 17 21 25 28
+	9 13 23 24 27 28
+	9 12 17 21 25 29
+	10 11 12 17 19 20 23
 
