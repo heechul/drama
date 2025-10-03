@@ -118,7 +118,29 @@
 	bank bit 4: XOR (18 22)
 	bank bit 5: XOR (8 9 12 13 15 18)
 
-## Raspberry Pi 3
+## Raspberry Pi Zero 2 (512MB)
+
+	reduced to 6 functions
+	Bits: 1, sz=6
+	12  (Correct: 100%)
+	13  (Correct: 100%)
+	14  (Correct: 100%)
+	Bits: 2, sz=15
+	Bits: 3, sz=20
+	Bits: 4, sz=15
+	Bits: 5, sz=6
+	Bits: 6, sz=1
+	Bits: 7, sz=0
+	Bits: 8, sz=0
+	Bits: 9, sz=0
+	Bits: 10, sz=0
+	Bank mapping functions saved to map.txt
+	Finishing
+
+	Inferred mapping
+	12
+	13
+	14
 
 ## Raspberry Pi 4 (2GB)
 
@@ -137,7 +159,10 @@
 	Bits: 7, sz=0
 	Finishing
 
-## Raspberry Pi 4 (4GB)
+	Inferred mapping
+	12
+	13
+	14
 
 ## Raspberry Pi 5 (4GB)
 
