@@ -66,7 +66,7 @@
 	16 XOR 20
 	17 XOR 21
 
-## Intel Nehalem  (2xdimms) 
+## Intel Xeon W3553 (Nehalem, 2xdimms) 
 
 	Bits: 1, sz=5
 	13  (Correct: 71%)
@@ -89,7 +89,7 @@
 	20
 	21
 
-## Intel E3-1220 v5 (4xdimms, 1 dimm = DDR4 4GB)
+## Intel E3-1220 v5 (Skylake, 4xdimms, 1 dimm = DDR4 4GB)
 
 	sudo ./measure -s 64 -t 300 -v 3 
 	..
@@ -118,7 +118,35 @@
 	bank bit 4: XOR (18 22)
 	bank bit 5: XOR (8 9 12 13 15 18)
 
-## Raspberry Pi Zero 2 (512MB)
+## Intel Intel(R) Xeon(R) CPU E5-2608L v3 (Haswell, 4xdimms, 1 dimm = DDR4 4GB)
+
+	reduced to 7 functions
+	Bits: 1, sz=2
+	22  (Correct: 93%)
+	Bits: 2, sz=4
+	19 23  (Correct: 90%)
+	20 24  (Correct: 96%)
+	21 25  (Correct: 96%)
+	Bits: 3, sz=6
+	Bits: 4, sz=6
+	Bits: 5, sz=7
+	8 13 15 17 27  (Correct: 90%)
+	Bits: 6, sz=7
+	7 12 14 16 18 26  (Correct: 96%)
+	Bits: 7, sz=8
+	Bits: 8, sz=11
+	Bits: 9, sz=12
+	Bits: 10, sz=12
+
+	Inferred mapping
+	22
+	19 23
+	20 24
+	21 25
+	8 13 15 17 27
+	7 12 14 16 18 26
+
+## Raspberry Pi Zero 2 (Cortex-A53, LPDDR2, 512MB)
 
 	reduced to 6 functions
 	Bits: 1, sz=6
@@ -142,7 +170,7 @@
 	13
 	14
 
-## Raspberry Pi 4 (2GB)
+## Raspberry Pi 4 (Cortex-A72, LPDDR4, 2GB)
 
 	$ sudo ./measure -s 8 -j 10 -t 120 -v 3
 	..
@@ -164,7 +192,7 @@
 	13
 	14
 
-## Raspberry Pi 5 (4GB)
+## Raspberry Pi 5 (Cortex-A76, LPDDR4X, 4GB)
 
 	sudo ./measure -s 8 -t 55 -m 1024 -v 3  -j 5
 
@@ -181,7 +209,7 @@
 	Bits: 7, sz=0
 	Finishing
 
-## NVIDIA Jetson Nano
+## NVIDIA Jetson Nano (Cortex-A57, 64bit LPDDR4, 4GB)
 
 	sudo ./measure -s 16 -j 20 -t 90 -v 3 > log.txt
 
@@ -208,9 +236,7 @@
 	10 16 17 18 22 23 27 29 30
 	10 11 13 15 16 20 22 24 25 29
 
-## NVIDIA Jetson TX2
-
-## NVIDIA Jetson Orin 
+## NVIDIA Jetson Orin AGX (Cortex-A78E, LPDDR5, 64GB)
 
 	reduced to 10 functions
 	Bits: 1, sz=2
