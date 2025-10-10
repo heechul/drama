@@ -148,6 +148,36 @@
 	8 13 15 17 27
 	7 12 14 16 18 26
 
+## Intel(R) Xeon(R) CPU E5-2658 v3 @ 2.20GHz (Haswell-EP, 8 dimms--3 have 2 ranks, 5 have 1 rank. *)
+
+	reduced to 9 functions
+	Bits: 1, sz=4
+	15  (Correct: 98%)
+	23  (Correct: 96%)
+	Bits: 2, sz=10
+	7 17  (Correct: 96%)
+	20 24  (Correct: 92%)
+	21 25  (Correct: 98%)
+	22 26  (Correct: 100%)
+	Bits: 3, sz=20
+	Bits: 4, sz=31
+	Bits: 5, sz=41
+	8 12 14 16 18  (Correct: 95%)
+	Bits: 6, sz=48
+	Bits: 7, sz=50
+	Bits: 8, sz=51
+	Bits: 9, sz=51
+	Bits: 10, sz=50
+
+	Inferred mapping (may not be accurate?)
+	15
+	23
+	7 17
+	20 24
+	21 25
+	22 26
+	8 12 14 16 18
+
 ## Raspberry Pi Zero 2 (Cortex-A53, LPDDR2, 512MB)
 
 	reduced to 6 functions
@@ -164,8 +194,6 @@
 	Bits: 8, sz=0
 	Bits: 9, sz=0
 	Bits: 10, sz=0
-	Bank mapping functions saved to map.txt
-	Finishing
 
 	Inferred mapping
 	12
@@ -210,6 +238,12 @@
 	Bits: 6, sz=0
 	Bits: 7, sz=0
 	Finishing
+
+	Inferred mapping (SDRAM_BANKLOW = -1)
+	12
+	13
+	14
+
 
 ## NVIDIA Jetson Nano (Cortex-A57, 64bit LPDDR4, 4GB)
 
@@ -262,7 +296,7 @@
 	Bank mapping functions saved to map.txt
 	Finishing
 
-	Infered mapping:
+	Infered mapping: (may not be accurate?)
 	9 13 17 18 21 22
 	11 14 16 20 21 22
 	11 12 13 16 19 24
