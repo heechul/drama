@@ -1,0 +1,1 @@
+../../mc-map/toy_map_detect.py
