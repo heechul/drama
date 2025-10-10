@@ -1,26 +1,31 @@
 
-## Dell XPS-13 (skylake)
+## Dell XPS-13/i5-6200U (Skylake, 8 GB, 4 ranks, 2GB/rank, )
 
-	$ sudo ./measure -s 16  -m 1024 -r -t 550
+	$ sudo ./measure -s 32 -t 340 -m 1024 -v 4
 
-	Bits: 1, sz=1
-	Bits: 2, sz=4
-	14 18  (Correct: 87%)
-	15 19  (Correct: 87%)
-	16 20  (Correct: 75%)
-	17 21  (Correct: 87%)
-	Bits: 3, sz=4
-	Bits: 4, sz=6
-	Bits: 5, sz=6
-	Bits: 6, sz=4
-	Bits: 7, sz=4
-	Finishing
+	reduced to 7 functions
+	Bits: 1, sz=2
+	Bits: 2, sz=5
+	14 18  (Correct: 100%)
+	15 19  (Correct: 75%)
+	16 20  (Correct: 87%)
+	17 21  (Correct: 62%)
+	Bits: 3, sz=8
+	Bits: 4, sz=10
+	Bits: 5, sz=12
+	Bits: 6, sz=14
+	8 9 12 13 14 15  (Correct: 87%)
+	Bits: 7, sz=16
+	Bits: 8, sz=17
+	Bits: 9, sz=18
+	Bits: 10, sz=13
 
 	Inferred mapping:  
-	14 XOR 18
-	15 XOR 19
-	16 XOR 20
-	17 XOR 21
+	14 18
+	15 19
+	16 20
+	17 21
+	8 9 12 13 14 15
 
 ## Toshiba PORTEGE R835P-56X (Sandybridge)
 
@@ -43,11 +48,8 @@
 	16 XOR 20
 	17 XOR 21
 
-## Dell E6420 (i5-2520M, 16GB, 2-dimms, Sandybridge)
+## Dell E6420/i5-2520M (Sandybridge, 16GB, 2-dimms )
 
-	sudo sysctl -w vm.nr_hugepages=1024
-	sudo ./measure -r -m 2048 -t 390 > log
-	tail log
 
 	Bits: 2, sz=4
 	14 18  (Correct: 50%)
@@ -111,12 +113,12 @@
 	Finishing
 
 	Inferred mapping
-	bank bit 0: XOR (7 14)
-	bank bit 1: XOR (15 19)
-	bank bit 2: XOR (16 20)
-	bank bit 3: XOR (17 21)
-	bank bit 4: XOR (18 22)
-	bank bit 5: XOR (8 9 12 13 15 18)
+	7 14
+	15 19
+	16 20
+	17 21
+	18 22
+	8 9 12 13 15 18
 
 ## Intel Intel(R) Xeon(R) CPU E5-2608L v3 (Haswell, 4xdimms, 1 dimm = DDR4 4GB)
 
@@ -146,6 +148,36 @@
 	8 13 15 17 27
 	7 12 14 16 18 26
 
+## Intel(R) Xeon(R) CPU E5-2658 v3 @ 2.20GHz (Haswell-EP, 8 dimms--3 have 2 ranks, 5 have 1 rank. *)
+
+	reduced to 9 functions
+	Bits: 1, sz=4
+	15  (Correct: 98%)
+	23  (Correct: 96%)
+	Bits: 2, sz=10
+	7 17  (Correct: 96%)
+	20 24  (Correct: 92%)
+	21 25  (Correct: 98%)
+	22 26  (Correct: 100%)
+	Bits: 3, sz=20
+	Bits: 4, sz=31
+	Bits: 5, sz=41
+	8 12 14 16 18  (Correct: 95%)
+	Bits: 6, sz=48
+	Bits: 7, sz=50
+	Bits: 8, sz=51
+	Bits: 9, sz=51
+	Bits: 10, sz=50
+
+	Inferred mapping (may not be accurate?)
+	15
+	23
+	7 17
+	20 24
+	21 25
+	22 26
+	8 12 14 16 18
+
 ## Raspberry Pi Zero 2 (Cortex-A53, LPDDR2, 512MB)
 
 	reduced to 6 functions
@@ -162,8 +194,6 @@
 	Bits: 8, sz=0
 	Bits: 9, sz=0
 	Bits: 10, sz=0
-	Bank mapping functions saved to map.txt
-	Finishing
 
 	Inferred mapping
 	12
@@ -208,6 +238,12 @@
 	Bits: 6, sz=0
 	Bits: 7, sz=0
 	Finishing
+
+	Inferred mapping (SDRAM_BANKLOW = -1)
+	12
+	13
+	14
+
 
 ## NVIDIA Jetson Nano (Cortex-A57, 64bit LPDDR4, 4GB)
 
@@ -260,7 +296,7 @@
 	Bank mapping functions saved to map.txt
 	Finishing
 
-	Infered mapping:
+	Infered mapping: (may not be accurate?)
 	9 13 17 18 21 22
 	11 14 16 20 21 22
 	11 12 13 16 19 24
