@@ -86,9 +86,8 @@ def main():
     if not const_masks:
         print("No nontrivial constant masks found.")
         return
-    print("Masks constant across this SAME_BANK set:")
     for m in const_masks:
-        print("  XOR(", ", ".join(f"PA[{b}]" for b in bits_of(m)), ")")
+        print(" ".join(f"{b}" for b in bits_of(m)))
 
 if __name__ == "__main__":
     main()
