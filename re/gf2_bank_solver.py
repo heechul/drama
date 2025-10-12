@@ -216,9 +216,9 @@ def main():
     ap = argparse.ArgumentParser(description="GF(2) bank mapping solver from per-bank address files.")
     ap.add_argument('--files', nargs='+', required=True,
                     help='One file per bank (each contains PAs for that bank).')
-    ap.add_argument('--lowbit', type=int, default=6,
+    ap.add_argument('--lowbit', type=int, default=5,
                     help='Lowest PA bit to include (default: 6 to skip 64B line).')
-    ap.add_argument('--highbit', type=int, default=20,
+    ap.add_argument('--highbit', type=int, default=35,
                     help='Highest PA bit to include (inclusive).')
     ap.add_argument('--verbose', action='store_true', help='Extra prints.')
     args = ap.parse_args()
@@ -369,5 +369,13 @@ def main():
         print("This often means the chosen bit window missed some true mapping bits,")
         print("or some addresses are mislabeled/noisy. Try increasing --highbit.")
 
+    # store recovered mapping into a file
+    with open("recovered_bank_mapping.txt", "w") as f:
+        for j in range(k):
+            bits = [f"{lowbit+i}" for i in range(n) if X[i][j] == 1]
+            if bits:
+                f.write(f"{' '.join(bits)}\n")
+            else:
+                f.write(f"bank_bit[{j}] = 0  (constant)\n")
 if __name__ == '__main__':
     main()
