@@ -352,7 +352,7 @@ std::vector <pointer> find_function(int bits, int pointer_bit, int align_bit) {
 
             mask = next_set_of_n_elements(mask);
             if (mask <= start_mask
-                || (mask & (1ull << (g_end_bit - 1 - align_bit)))) {
+                || (mask & (1ull << (g_end_bit + 1 - align_bit)))) {
                 break;
             }
         }
