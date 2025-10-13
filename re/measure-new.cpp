@@ -326,11 +326,11 @@ char *name_bits(pointer mask) {
 // ----------------------------------------------
 std::vector <pointer> find_function(int bits, int pointer_bit, int align_bit) {
     // try to find a 2 bit function
-    pointer start_mask = (1 << bits) - 1;
+    pointer start_mask = (1ULL << bits) - 1;
     std::set <pointer> func_pool;
     for (int set = 0; set < sets.size(); set++) {
         std::set <pointer> set_func;
-        unsigned int mask = start_mask;
+        pointer mask = start_mask;
 
         // logDebug("Set %d: 0x%lx count: %ld\n", set + 1, sets[set][0], sets[set].size());
         while (1) {
@@ -764,7 +764,7 @@ int main(int argc, char *argv[]) {
     // find number of functions, highest bit and lowest bit
     for (int bits = 1; bits <= MAX_XOR_BITS; bits++) {
         rows += functions[bits].size();
-	logDebug("functions[%d].size(): %ld\n", bits, functions[bits].size());
+	    logDebug("functions[%d].size(): %ld\n", bits, functions[bits].size());
         for (pointer f : functions[bits]) {
             if (f > cols) cols = f;
         }
@@ -806,6 +806,8 @@ int main(int argc, char *argv[]) {
     // columns (function indices) whose columns are linearly independent over GF(2).
     int t_rows = cols;   // number of rows in matrix_t (physical bits)
     int t_cols = rows;   // number of columns in matrix_t (functions)
+
+    logDebug("Matrix size: %d x %d\n", t_rows, t_cols);
 
     // number of 64-bit words needed to store t_cols bits
     int W = (t_cols + 63) / 64;

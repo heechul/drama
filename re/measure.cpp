@@ -326,11 +326,11 @@ char *name_bits(pointer mask) {
 // ----------------------------------------------
 std::vector <pointer> find_function(int bits, int pointer_bit, int align_bit) {
     // try to find a 2 bit function
-    pointer start_mask = (1 << bits) - 1;
+    pointer start_mask = (1ULL << bits) - 1;
     std::set <pointer> func_pool;
     for (int set = 0; set < sets.size(); set++) {
         std::set <pointer> set_func;
-        unsigned int mask = start_mask;
+        pointer mask = start_mask;
 
         // logDebug("Set %d: 0x%lx count: %ld\n", set + 1, sets[set][0], sets[set].size());
         while (1) {
