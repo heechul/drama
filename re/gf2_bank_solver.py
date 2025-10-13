@@ -217,8 +217,8 @@ def main():
     ap.add_argument('--files', nargs='+', required=True,
                     help='One file per bank (each contains PAs for that bank).')
     ap.add_argument('--lowbit', type=int, default=5,
-                    help='Lowest PA bit to include (default: 6 to skip 64B line).')
-    ap.add_argument('--highbit', type=int, default=35,
+                    help='Lowest PA bit to include (default: 5 to skip 32B line).')
+    ap.add_argument('--highbit', type=int, default=34,
                     help='Highest PA bit to include (inclusive).')
     ap.add_argument('--verbose', action='store_true', help='Extra prints.')
     args = ap.parse_args()
