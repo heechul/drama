@@ -41,6 +41,7 @@ size_t num_reads_inner = 1;
 size_t mapping_size = (1<<30); // 1GB default
 size_t expected_sets = 16;
 int g_start_bit = 5; // search start bit
+int g_end_bit = 34; // search end bit
 int g_display_progress = 0;
 char* g_output_file = nullptr;
 
@@ -351,7 +352,7 @@ std::vector <pointer> find_function(int bits, int pointer_bit, int align_bit) {
 
             mask = next_set_of_n_elements(mask);
             if (mask <= start_mask
-                || (mask & (1 << (pointer_bit - 1 - align_bit)))) {
+                || (mask & (1ull << (g_end_bit - 1 - align_bit)))) {
                 break;
             }
         }
@@ -449,10 +450,13 @@ int main(int argc, char *argv[]) {
     int samebank_threshold = -1;
     int cpu_affinity = -1;
 
-    while ((c = getopt(argc, argv, "b:c:d:m:i:j:ks:t:v:f:")) != EOF) {
+    while ((c = getopt(argc, argv, "b:c:d:e:m:i:j:ks:t:v:f:")) != EOF) {
         switch (c) {
         case 'b':
             g_start_bit = atof(optarg);
+            break;
+        case 'e':
+            g_end_bit = atof(optarg);
             break;
         case 'c':
             cpu_affinity = atol(optarg);
@@ -783,7 +787,7 @@ int main(int argc, char *argv[]) {
         for (pointer f : functions[bits]) {
 
             for (int b = 0; b < cols; b++) {
-                matrix[r][cols - b - 1] = (f & (1ul << b)) ? 1 : 0;
+                matrix[r][cols - b - 1] = (f & (1ull << b)) ? 1 : 0;
             }
             r++;
         }
