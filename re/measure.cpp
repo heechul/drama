@@ -512,11 +512,11 @@ int main(int argc, char *argv[]) {
     }
 
     // check mapping size
-    if (mapping_size > getPhysicalMemorySize() / 2) {
-        logWarning("Mapping size is too large, reducing to %zu MB\n",
-                   getPhysicalMemorySize() / 2 / 1024 / 1024);
-        mapping_size = getPhysicalMemorySize() / 2;
-    }
+    // if (mapping_size > getPhysicalMemorySize() / 2) {
+    //     logWarning("Mapping size is too large, reducing to %zu MB\n",
+    //                getPhysicalMemorySize() / 2 / 1024 / 1024);
+    //     mapping_size = getPhysicalMemorySize() / 2;
+    // }
 
     srand(time(NULL));
     g_page_size = sysconf(_SC_PAGESIZE);
