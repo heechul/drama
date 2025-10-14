@@ -29,8 +29,7 @@
 
 #define MAX_OUTER_LOOP     1000
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
-#define MAX_XOR_BITS       10    // orig: 7
-#define UNIT_SIZE          32    // address generation unit size (in bytes) - 32B for LPDDR; owise 64B for L3 cache line
+#define MAX_XOR_BITS       15    // orig: 7
 // ------------ global settings ----------------
 int verbosity = 1;
 size_t g_page_size;
@@ -254,7 +253,8 @@ uint64_t getTiming(pointer first, pointer second) {
 
 // ----------------------------------------------
 void getRandomAddress(pointer *virt, pointer *phys) {
-    size_t offset = (size_t)(rand() % (mapping_size / UNIT_SIZE)) * UNIT_SIZE;
+    size_t unit_size = (1ULL << g_start_bit);
+    size_t offset = (size_t)(rand() % (mapping_size / unit_size)) * unit_size;
     *virt = (pointer) mapping + offset;
     *phys = getPhysicalAddr(*virt);
 }
