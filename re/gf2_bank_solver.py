@@ -327,7 +327,7 @@ def main():
             print(f"bank_bit[{j}] = 0  (constant)")
 
     # Show codes assigned to each bank (from representatives)
-    print("\n=== Codes per bank (from representatives) ===")
+    # print("\n=== Codes per bank (from representatives) ===")
     bank_codes = []
     for b in range(B):
         # code = reps[b] (1 x n) * X (n x k) -> (1 x k)
@@ -340,7 +340,7 @@ def main():
                 sbit ^= X[c][j]
             code[j] = sbit
         bank_codes.append(tuple(code))
-        print(f"Bank {b}: {''.join(str(x) for x in code)}  (binary)")
+        # print(f"Bank {b}: {''.join(str(x) for x in code)}  (binary)")
 
     # Verify: every address in each bank maps to that bank's code
     print("\n=== Verification on all input addresses ===")
@@ -369,6 +369,36 @@ def main():
         print("This often means the chosen bit window missed some true mapping bits,")
         print("or some addresses are mislabeled/noisy. Try increasing --highbit.")
 
+    # remove false positive bank bit that is always 0 or 1 across all addresses
+    col_sums = [0]*k
+    for b, rows in enumerate(banks):
+        for r in rows:
+            one_cols = [i for i,v in enumerate(r) if v]
+            for j in range(k):
+                sbit = 0
+                for c in one_cols:
+                    sbit ^= X[c][j]
+                col_sums[j] += sbit
+    nonconst_cols = [j for j in range(k) if 0 < col_sums[j] < total]
+    if len(nonconst_cols) < k:
+        print(f"\nNote: removed {k - len(nonconst_cols)} constant bank bits (always 0 or 1).")
+        k = len(nonconst_cols)
+        X = [[X[i][j] for j in nonconst_cols] for i in range(n)]
+        bank_codes = [tuple(code[j] for j in nonconst_cols) for code in bank_codes]
+        print(f"Now k={k} non-constant bank bits remain.")
+
+    # Final report
+    print("\n=== Final recovered bank-bit functions ===")
+    for j in range(k):
+        bits = [f"a{lowbit+i}" for i in range(n) if X[i][j] == 1]
+        if bits:
+            print(f"bank_bit[{j}] = {' ⊕ '.join(bits)}")
+        else:
+            print(f"bank_bit[{j}] = 0  (constant)")
+    print("\n(You can copy-paste these functions for your use.)")
+    print("\n=== End of report ===")
+
+    # Optionally,
     # store recovered mapping into a file
     with open("recovered_bank_mapping.txt", "w") as f:
         for j in range(k):
