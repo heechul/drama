@@ -37,7 +37,7 @@ size_t g_page_size;
 // default values
 size_t num_reads_outer = 10;
 size_t num_reads_inner = 1;
-size_t mapping_size = (1<<30); // 1GB default
+size_t mapping_size = (1ULL<<30); // 1GB default
 size_t expected_sets = 16;
 int g_start_bit = 5; // search start bit
 int g_end_bit = 34; // search end bit
@@ -429,14 +429,32 @@ std::vector<double> prob_function(std::vector <pointer> masks, int align_bit) {
     for (std::vector<pointer>::iterator it = masks.begin(); it != masks.end();
          it++) {
         pointer mask = *it;
-        int count = 0;
+        int count = 0;            // number of sets with parity == 1
+        int used_sets = 0;        // number of non-empty sets considered
+
         for (int set = 0; set < sets.size(); set++) {
             if (sets[set].size() == 0) continue;
-            if (apply_bitmask(sets[set][0], mask)) // << BUG FIX
-                count++;
+
+            // majority voting across addresses in this set for robustness
+            int ones = 0;
+            for (size_t a = 0; a < sets[set].size(); a++) {
+                if (apply_bitmask(sets[set][a], mask)) ones++;
+            }
+#if 1
+            // if majority of addresses in the set have parity 1, count this set as 1
+            int parity = (ones * 2 >= (int)sets[set].size()) ? 1 : 0;
+#else
+            // all addresses in the set must have parity 1 to count this set as 1
+            int parity = (ones == (int)sets[set].size()) ? 1 : 0;
+#endif
+            if (parity) count++;
+            used_sets++;
         }
-        // logDebug("%s: %.2f\n", name_bits(mask), (double) count / sets.size());
-        prob.push_back((double) count / sets.size());
+
+        double p = 0.0;
+        if (used_sets > 0) p = (double) count / (double) used_sets;
+        // logDebug("%s: %.2f (used_sets=%d)\n", name_bits(mask), p, used_sets);
+        prob.push_back(p);
     }
     return prob;
 }
@@ -969,7 +987,7 @@ int main(int argc, char *argv[]) {
             if (prob[bits][j] <= 0.01 || prob[bits][j] >= 0.99) {
                 // false positives, this bits are always 0 or 1
                 false_positives.push_back(functions[bits][j]);
-                // logDebug("False positive function: %s\n", name_bits(functions[bits][j]));
+                logInfo("False positive function: %s\n", name_bits(functions[bits][j]));
             }
         }
     }
