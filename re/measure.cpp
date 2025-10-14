@@ -291,6 +291,14 @@ pointer next_set_of_n_elements(pointer x) {
     return ripple | ones;
 }
 
+// next_set_of_n_elements:
+// Generate the next bitmask that has the same number of 1-bits as `x`.
+// This is a standard bit-trick used to enumerate combinations of n bits
+// set among a larger bit width (e.g., enumerate all masks with k ones).
+// Example: given 0b00111 -> returns 0b01011 (next combination).
+// Used by `find_function()` to iterate candidate masks of a fixed Hamming weight.
+
+
 // ----------------------------------------------
 int pop(unsigned x) {
     x = x - ((x >> 1) & 0x55555555);
@@ -301,15 +309,27 @@ int pop(unsigned x) {
     return x & 0x0000003F;
 }
 
+// pop: fast population count (Hamming weight) for 32-bit integers.
+// Returns the number of set bits in `x`.
+
 // ----------------------------------------------
 int xor64(pointer addr) {
     return (pop(addr & 0xffffffff) + pop((addr >> 32) & 0xffffffff)) & 1;
 }
 
+// xor64: compute parity (XOR of all bits) of a 64-bit value.
+// It uses `pop` to count ones in the low and high 32-bit halves and
+// returns parity (0 or 1). This is used to evaluate parity-based
+// bank-indexing functions.
+
 // ----------------------------------------------
 int apply_bitmask(pointer addr, pointer mask) {
     return xor64(addr & mask);
 }
+
+// apply_bitmask: apply `mask` to `addr` and return the parity (0/1)
+// of the selected bits. In the context of bank-function discovery, the
+// code checks whether this parity is constant for all addresses in a set.
 
 // ----------------------------------------------
 char *name_bits(pointer mask) {
@@ -324,16 +344,47 @@ char *name_bits(pointer mask) {
     return name;
 }
 
+// name_bits: return a human-readable string listing the bit positions
+// set in `mask`. Example: mask with bits 5 and 7 => "5 7". Used for
+// printing and saving discovered functions.
+
+
 // ----------------------------------------------
 std::vector <pointer> find_function(int bits, int pointer_bit, int align_bit) {
-    // try to find a 2 bit function
+    // find_function:
+    // Search for candidate physical-address bit-masks (XOR functions)
+    // that map addresses of a measured "set" to a constant parity.
+    //
+    // Inputs:
+    //  - bits: number of 1-bits in the candidate mask (the Hamming weight)
+    //  - pointer_bit: pointer size in bits (not used directly here)
+    //  - align_bit: number of low-order bits to ignore (e.g., cache-line offset)
+    //
+    // Output:
+    //  - vector of masks (shifted by global g_start_bit) that are valid
+    //    candidate functions across all measured `sets`.
+    //
+    // Algorithm summary:
+    //  - For each measured set, enumerate all masks with `bits` ones
+    //    (using next_set_of_n_elements).
+    //  - For a candidate mask, compute parity = apply_bitmask(addr >> align_bit, mask)
+    //    for the first address in the set and verify every other address
+    //    in the same set produces the same parity. If so, the mask is valid
+    //    for that set.
+    //  - Intersect the valid masks across all sets. Only masks that are
+    //    consistent for every set survive — those are returned.
+    //
+    // Note: returned masks are left-shifted by g_start_bit to map into the
+    // same bit-indexing convention used elsewhere in the program.
+
     pointer start_mask = (1ULL << bits) - 1;
     std::set <pointer> func_pool;
     for (int set = 0; set < sets.size(); set++) {
         std::set <pointer> set_func;
         pointer mask = start_mask;
-
-        // logDebug("Set %d: 0x%lx count: %ld\n", set + 1, sets[set][0], sets[set].size());
+        // For each set, enumerate candidate masks with exactly `bits` ones.
+        // We then test whether the parity under that mask is identical for
+        // every address in the set (after shifting by align_bit).
         while (1) {
             if (sets[set].size() == 0) break;
             // check if mask produces same result for all addresses in set
@@ -389,6 +440,168 @@ std::vector<double> prob_function(std::vector <pointer> masks, int align_bit) {
     }
     return prob;
 }
+
+// ---------------- GF(2) linear solver helpers ----------------
+
+// Count bits in 64-bit word
+static inline int popcount64(uint64_t x) {
+    return __builtin_popcountll(x);
+}
+
+// Build GF(2) matrix rows as uint64_t if B <= 64. We restrict to B<=64
+// in the simple implementation below to pack columns into a single word.
+// For larger B the code would need vector<uint64_t> rows.
+
+// find_function_linear:
+// Build linear equations v dot x = 0 (mod2) from set address pairs
+// and solve for x (unknown mask bits) using Gaussian elimination over GF(2).
+// Then enumerate nullspace combinations (when small) to find solutions with
+// Hamming weight == bits. Returns masks shifted left by g_start_bit.
+std::vector<pointer> find_function_linear(int bits, int pointer_bit, int align_bit) {
+    std::vector<pointer> results;
+
+    // remaining bit window: consider bits from align_bit .. g_end_bit inclusive
+    int B = (g_end_bit + 1 - align_bit);
+    if (B <= 0 || B > 64) {
+        // fallback: empty (unsupported B for this simple solver)
+        logWarning("find_function_linear: unsupported bit-window B=%d\n", B);
+        return results;
+    }
+
+    // Build equation matrix: for each set, for each address a != base, add equation
+    // ( (base ^ a) >> align_bit ) & ((1<<B)-1)  dot x == 0
+    std::vector<uint64_t> rows;
+    uint64_t mask_window = (B == 64) ? ~0ULL : ((1ULL << B) - 1);
+
+    for (size_t s = 0; s < sets.size(); s++) {
+        if (sets[s].size() <= 1) continue;
+        uint64_t base = (sets[s][0] >> align_bit) & mask_window;
+        for (size_t j = 1; j < sets[s].size(); j++) {
+            uint64_t v = ((sets[s][j] >> align_bit) & mask_window) ^ base;
+            if (v == 0) continue; // trivial equation
+            rows.push_back(v);
+        }
+    }
+
+    if (rows.empty()) return results;
+
+    // Gaussian elimination (row-reduction) over GF(2)
+    int m = rows.size();
+    int row = 0;
+    std::vector<int> pivot_col(B, -1);
+
+    for (int col = 0; col < B && row < m; col++) {
+        // find pivot row with bit 'col' set
+        int sel = -1;
+        for (int r = row; r < m; r++) {
+            if ((rows[r] >> col) & 1ULL) { sel = r; break; }
+        }
+        if (sel == -1) continue;
+        // swap
+        std::swap(rows[row], rows[sel]);
+        pivot_col[col] = row;
+        // eliminate this bit from all other rows
+        for (int r = 0; r < m; r++) {
+            if (r != row && ((rows[r] >> col) & 1ULL)) {
+                rows[r] ^= rows[row];
+            }
+        }
+        row++;
+    }
+
+    int rank = row;
+    int nullity = B - rank;
+    logDebug("GF2 solve: B=%d, equations=%d, rank=%d, nullity=%d\n", B, m, rank, nullity);
+
+    // Determine free columns (those not pivot)
+    std::vector<int> free_cols;
+    for (int c = 0; c < B; c++) {
+        if (pivot_col[c] == -1) free_cols.push_back(c);
+    }
+
+    // If nullity == 0 then only zero solution -> no non-zero mask
+    if (nullity == 0) return results;
+
+    // Build nullspace basis vectors (t = nullity)
+    // For each free column f, set x[f]=1 and compute pivot columns via rows
+    std::vector<uint64_t> basis; basis.reserve(nullity);
+    for (int fi = 0; fi < (int)free_cols.size(); fi++) {
+        uint64_t vec = 0;
+        int fcol = free_cols[fi];
+        // set free bit
+        vec |= (1ULL << fcol);
+        // compute pivot bits: for each pivot column pcol, x[pcol] = rows[pivot_row][fcol]
+        for (int pcol = 0; pcol < B; pcol++) {
+            int prow = pivot_col[pcol];
+            if (prow == -1) continue;
+            // if entry at (prow, fcol) is 1 then pivot bit must be 1
+            if ((rows[prow] >> fcol) & 1ULL) vec |= (1ULL << pcol);
+        }
+        basis.push_back(vec);
+    }
+
+    // Now enumerate combinations of basis vectors to find solutions with Hamming weight == bits
+    int t = basis.size();
+    const int ENUM_LIMIT = 22; // up to 2^22 ~ 4M combos; adjust as needed
+    if (t <= ENUM_LIMIT) {
+        uint64_t combos = (1ULL << t);
+        for (uint64_t mask = 1; mask < combos; mask++) {
+            uint64_t vec = 0;
+            // combine basis
+            uint64_t mm = mask;
+            while (mm) {
+                int b = __builtin_ctzll(mm);
+                vec ^= basis[b];
+                mm &= mm - 1;
+            }
+            if ((int)popcount64(vec) == bits) {
+                // shift by g_start_bit to match existing code convention
+                results.push_back((pointer) (vec << g_start_bit));
+            }
+        }
+    } else {
+        // Nullity too large to enumerate fully. Use heuristics:
+        //  - include each single basis vector if weight matches
+        //  - include some pairwise combinations (cap)
+        const int PAIR_CAP = 20000;
+        for (int i = 0; i < t; i++) {
+            uint64_t v = basis[i];
+            if ((int)popcount64(v) == bits) results.push_back((pointer) (v << g_start_bit));
+        }
+        int added = 0;
+        for (int i = 0; i < t && added < PAIR_CAP; i++) {
+            for (int j = i + 1; j < t && added < PAIR_CAP; j++) {
+                uint64_t v = basis[i] ^ basis[j];
+                if ((int)popcount64(v) == bits) {
+                    results.push_back((pointer) (v << g_start_bit));
+                    added++;
+                }
+            }
+        }
+        // If still empty, include low-weight basis combinations by greedy
+        if (results.empty()) {
+            // greedy: try combinations formed by XORing up to 4 smallest-weight basis vectors
+            std::vector<std::pair<int,int>> weights; weights.reserve(t);
+            for (int i = 0; i < t; i++) weights.emplace_back(popcount64(basis[i]), i);
+            std::sort(weights.begin(), weights.end());
+            int limit = std::min(t, 12);
+            for (int i = 0; i < limit; i++) {
+                for (int j = i; j < limit; j++) {
+                    for (int k = j; k < limit; k++) {
+                        uint64_t v = basis[weights[i].second] ^ basis[weights[j].second] ^ basis[weights[k].second];
+                        if ((int)popcount64(v) == bits) results.push_back((pointer) (v << g_start_bit));
+                    }
+                }
+            }
+        }
+    }
+
+    // Deduplicate results
+    std::sort(results.begin(), results.end());
+    results.erase(std::unique(results.begin(), results.end()), results.end());
+    return results;
+}
+
 
 // ----------------------------------------------
 void save_bank_functions(const char* filename,
@@ -744,7 +957,8 @@ int main(int argc, char *argv[]) {
     // try to find a xor function
     std::map<int, std::vector<double> > prob;
     for (int bits = 1; bits <= MAX_XOR_BITS; bits++) {
-        functions[bits] = find_function(bits, POINTER_SIZE, g_start_bit);
+        // Use linear GF(2) solver instead of expensive combinatorial enumeration
+        functions[bits] = find_function_linear(bits, POINTER_SIZE, g_start_bit);
         prob[bits] = prob_function(functions[bits], g_start_bit);
     }
 
@@ -768,7 +982,7 @@ int main(int argc, char *argv[]) {
     // find number of functions, highest bit and lowest bit
     for (int bits = 1; bits <= MAX_XOR_BITS; bits++) {
         rows += functions[bits].size();
-	logDebug("functions[%d].size(): %ld\n", bits, functions[bits].size());
+	    logDebug("functions[%d].size(): %ld\n", bits, functions[bits].size());
         for (pointer f : functions[bits]) {
             if (f > cols) cols = f;
         }
