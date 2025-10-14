@@ -36,7 +36,11 @@ size_t g_page_size;
 
 // default values
 size_t num_reads_outer = 10;
+#if defined(__aarch64__)
+size_t num_reads_inner = 10; // need amplication due to low timer resolution in ARM64
+#else
 size_t num_reads_inner = 1;
+#endif
 size_t mapping_size = (1ULL<<30); // 1GB default
 size_t expected_sets = 16;
 int g_start_bit = 5; // search start bit
