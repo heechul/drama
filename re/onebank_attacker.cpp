@@ -27,6 +27,7 @@
 #include <signal.h>
 #include <sys/ioctl.h>
 #include "measure.h"
+#include <pthread.h>
 
 
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
@@ -296,6 +297,29 @@ char *name_bits(pointer mask) {
     return name;
 }
 
+// Worker thread argument
+struct ThreadArg {
+    int id;
+    long *counter;
+};
+
+// Each thread repeatedly accesses all addresses in sets[0] until g_quit_signal
+// is set. It increments its own counter for each full traversal of the set.
+static void *access_all_thread(void *arg) {
+    ThreadArg *a = (ThreadArg *)arg;
+    long *ctr = a->counter;
+
+    while (!g_quit_signal) {
+        for (size_t j = 0; j < sets[0].size(); ++j) {
+            // touch the address and flush it
+            *((volatile int *)sets[0][j]);
+            clflush((void *)sets[0][j]);
+        }
+        (*ctr)++;
+    }
+    return NULL;
+}
+
 // name_bits: return a human-readable string listing the bit positions
 // set in `mask`. Example: mask with bits 5 and 7 => "5 7". Used for
 // printing and saving discovered functions.
@@ -311,7 +335,8 @@ int main(int argc, char *argv[]) {
     int samebank_threshold = -1;
     int cpu_affinity = -1;
 
-    while ((c = getopt(argc, argv, "b:c:e:r:g:m:i:j:ks:t:v:f:")) != EOF) {
+    int num_threads = 1;
+    while ((c = getopt(argc, argv, "b:c:e:r:g:m:i:j:ks:t:v:f:n:")) != EOF) {
         switch (c) {
         case 'b':
             g_start_bit = atoi(optarg);
@@ -349,6 +374,10 @@ int main(int argc, char *argv[]) {
         case 'f':
             g_output_file = optarg;
             break;
+        case 'n':
+            num_threads = atoi(optarg);
+            if (num_threads <= 0) num_threads = 1;
+            break;
         case ':':
             printf("Missing option.\n");
             exit(1);
@@ -372,18 +401,18 @@ int main(int argc, char *argv[]) {
     logDebug("Number of reads: %lu x %lu\n", num_reads_outer, num_reads_inner)
     logDebug("Expected sets: %lu\n", expected_sets);
 
-    // affinity to core cpu_affinity
-    if (cpu_affinity < 0) {
-        cpu_affinity = 0;
-    }
-    logInfo("Setting CPU affinity to core %d\n", cpu_affinity);
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    CPU_SET(cpu_affinity, &set);
-    if (sched_setaffinity(0, sizeof(cpu_set_t), &set) != 0) {
-        perror("sched_setaffinity");
-        exit(1);
-    }
+    // // affinity to core cpu_affinity
+    // if (cpu_affinity < 0) {
+    //     cpu_affinity = 0;
+    // }
+    // logInfo("Setting CPU affinity to core %d\n", cpu_affinity);
+    // cpu_set_t set;
+    // CPU_ZERO(&set);
+    // CPU_SET(cpu_affinity, &set);
+    // if (sched_setaffinity(0, sizeof(cpu_set_t), &set) != 0) {
+    //     perror("sched_setaffinity");
+    //     exit(1);
+    // }
 
     pointer first, second;
     pointer base;
@@ -595,22 +624,53 @@ int main(int argc, char *argv[]) {
         fclose(f);
     }
     
-    // access all addresses in the sets[0]
-    logInfo("Accessing all addresses in the sets[0] (%ld addresses)...\n", sets[0].size());
-    long t0 = utime();
-    long counter = 0;
-    while (1) {
-        for (int j = 0; j < sets[0].size(); j++) {
-            *((volatile int*)sets[0][j]);
-            clflush((void*)sets[0][j]);
-        }
-        counter++;
-        if (g_quit_signal) break;
+    // access all addresses in the sets[0] using multiple threads
+    if (sets.empty()) {
+        logWarning("%s\n", "No sets found, nothing to access");
+        exit(1);
     }
+
+    logInfo("Accessing all addresses in the sets[0] (%ld addresses) with %d threads...\n", (long)sets[0].size(), num_threads);
+
+    std::vector<pthread_t> threads(num_threads);
+    std::vector<ThreadArg> args(num_threads);
+    std::vector<long> counters(num_threads, 0);
+
+    long t0 = utime();
+
+    for (int i = 0; i < num_threads; ++i) {
+        args[i].id = i;
+        args[i].counter = &counters[i];
+        int rc = pthread_create(&threads[i], NULL, access_all_thread, &args[i]);
+        if (rc != 0) {
+            perror("pthread_create");
+            // continue creating remaining threads or exit? we'll exit
+            g_quit_signal = 1;
+            break;
+        }
+    }
+
+    // main thread just waits for SIGINT to set g_quit_signal
+    while (!g_quit_signal) {
+        sleep(1);
+    }
+
+    // join threads and aggregate counters
+    long long total_iters = 0;
+    for (int i = 0; i < num_threads; ++i) {
+        pthread_join(threads[i], NULL);
+        total_iters += counters[i];
+    }
+
     long dur_in_us = utime() - t0;
-    long accessed_bytes = sets[0].size() * counter * 64;
-    printf("Accessed %ld bytes in %ld ms\n", accessed_bytes, dur_in_us/1000);
-    printf("Bandwidth: %.1f MB/s\n", (double)accessed_bytes / dur_in_us * 1000000 / (1024*1024));
+    long long accessed_bytes = (long long)sets[0].size() * total_iters * 64LL;
+    printf("Accessed %lld bytes in %ld ms\n", accessed_bytes, dur_in_us/1000);
+    if (dur_in_us > 0) {
+        double mbps = (double)accessed_bytes / (double)dur_in_us * 1000000.0 / (1024.0*1024.0);
+        printf("Bandwidth: %.1f MB/s\n", mbps);
+    } else {
+        printf("Bandwidth: infinite (duration 0)\n");
+    }
     exit(1);
     return 0;
 }
