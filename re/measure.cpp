@@ -684,16 +684,19 @@ int main(int argc, char *argv[]) {
     int samebank_threshold = -1;
     int cpu_affinity = -1;
 
-    while ((c = getopt(argc, argv, "b:c:e:m:i:j:ks:t:v:f:")) != EOF) {
+    while ((c = getopt(argc, argv, "b:c:e:g:m:i:j:ks:t:v:f:")) != EOF) {
         switch (c) {
         case 'b':
-            g_start_bit = atof(optarg);
+            g_start_bit = atoi(optarg);
             break;
         case 'e':
-            g_end_bit = atof(optarg);
+            g_end_bit = atoi(optarg);
             break;
         case 'c':
-            cpu_affinity = atol(optarg);
+            cpu_affinity = atoi(optarg);
+            break;
+        case 'g':
+            mapping_size = atol(optarg) * 1024 * 1024 * 1024;
             break;
         case 'm':
             mapping_size = atol(optarg) * 1024 * 1024;
@@ -722,7 +725,7 @@ int main(int argc, char *argv[]) {
             break;
         default:
             printf(
-                "Usage %s [-m <memory size in MB>] [-i <number of outer loops>] [-j <number of inner loops>] [-s <expected sets>] [-t <threshold cycles>] [-f <output file>]\n",
+                "Usage %s [-m <memory size in MB> | -g <memory size in GB>] [-i <number of outer loops>] [-j <number of inner loops>] [-s <expected sets>] [-t <threshold cycles>] [-f <output file>]\n",
                 argv[0]);
             exit(0);
             break;
