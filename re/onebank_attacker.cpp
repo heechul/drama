@@ -612,7 +612,7 @@ int main(int argc, char *argv[]) {
         logInfo("Set %d: count: %ld\n",
                 set + 1, sets[set].size());
         char filename[100];
-        sprintf(filename, "set%d.txt", set + 1);
+        sprintf(filename, "set%d_va.txt", set + 1);
         FILE *f = fopen(filename, "w"); // overwrite if file exists
         if (!f) {
             logWarning("Cannot open file %s for writing\n", filename);
@@ -630,7 +630,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    logInfo("Accessing all addresses in the sets[0] (%ld addresses) with %d threads...\n", (long)sets[0].size(), num_threads);
+    printf("Accessing all addresses in the sets[0] (%ld addresses) with %d threads...\n", (long)sets[0].size(), num_threads);
 
     std::vector<pthread_t> threads(num_threads);
     std::vector<ThreadArg> args(num_threads);
@@ -670,6 +670,16 @@ int main(int argc, char *argv[]) {
         printf("Bandwidth: %.1f MB/s\n", mbps);
     } else {
         printf("Bandwidth: infinite (duration 0)\n");
+    }
+    // per-thread b/w
+    for (int i = 0; i < num_threads; ++i) {
+        long long t_bytes = (long long)sets[0].size() * counters[i] * 64LL;
+        if (dur_in_us > 0) {
+            double mbps = (double)t_bytes / (double)dur_in_us * 1000000.0 / (1024.0*1024.0);
+            printf("Thread %d: iters: %ld  Bandwidth: %.1f MB/s\n", i, counters[i], mbps);
+        } else {
+            printf("Thread %d: iters: %ld  Bandwidth: infinite (duration 0)\n", i, counters[i]);
+        }
     }
     exit(1);
     return 0;
