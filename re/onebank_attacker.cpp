@@ -36,7 +36,8 @@
 int verbosity = 1;
 size_t g_page_size;
 
-int g_scale_factor = 1;
+int g_scale_factor = 1; // scale factor for timing (to adjust for different CPU speeds)
+int g_access_type = 0; // 0: read, 1: write
 
 // default values
 size_t num_reads_outer = 10;
@@ -310,10 +311,18 @@ static void *access_all_thread(void *arg) {
     long *ctr = a->counter;
 
     while (!g_quit_signal) {
-        for (size_t j = 0; j < sets[0].size(); ++j) {
-            // touch the address and flush it
-            *((volatile int *)sets[0][j]);
-            clflush((void *)sets[0][j]);
+        if (g_access_type == 1) {
+            for (size_t j = 0; j < sets[0].size(); ++j) {
+                // write to the address and flush it
+                *((volatile int *)sets[0][j]) = 0xdeadbeef;
+                clflush((void *)sets[0][j]);
+            }
+        } else {
+            for (size_t j = 0; j < sets[0].size(); ++j) {
+                // touch the address and flush it
+                *((volatile int *)sets[0][j]);
+                clflush((void *)sets[0][j]);
+            }
         }
         (*ctr)++;
     }
@@ -336,8 +345,11 @@ int main(int argc, char *argv[]) {
     int cpu_affinity = -1;
 
     int num_threads = 1;
-    while ((c = getopt(argc, argv, "b:c:e:r:g:m:i:j:ks:t:v:f:n:")) != EOF) {
+    while ((c = getopt(argc, argv, "a:b:c:e:r:g:m:i:j:ks:t:v:f:n:")) != EOF) {
         switch (c) {
+        case 'a':
+            g_access_type = (!strncmp(optarg, "write", 5)) ? 1 : 0;
+            break;
         case 'b':
             g_start_bit = atoi(optarg);
             break;
@@ -630,7 +642,9 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    printf("Accessing all addresses in the sets[0] (%ld addresses) with %d threads...\n", (long)sets[0].size(), num_threads);
+    printf("Accessing (%s) all addresses in the sets[0] (%ld addresses) with %d threads...\n",
+        (g_access_type==1)?"write":"read",
+        (long)sets[0].size(), num_threads);
 
     std::vector<pthread_t> threads(num_threads);
     std::vector<ThreadArg> args(num_threads);
