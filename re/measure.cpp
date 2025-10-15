@@ -27,7 +27,6 @@
 #include "measure.h"
 
 
-#define MAX_OUTER_LOOP     1000
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
 #define MAX_XOR_BITS       15    // orig: 7
 // ------------ global settings ----------------
@@ -227,7 +226,6 @@ static inline void clflush(volatile void *p) {
 // ----------------------------------------------
 uint64_t getTiming(pointer first, pointer second) {
     size_t min_res = (-1ull);
-    assert(num_reads_outer <= MAX_OUTER_LOOP);
 
     for (int i = 0; i < num_reads_outer; i++) {
         size_t number_of_reads = num_reads_inner;
