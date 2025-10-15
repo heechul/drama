@@ -34,6 +34,8 @@
 int verbosity = 1;
 size_t g_page_size;
 
+int g_scale_factor = 1;
+
 // default values
 size_t num_reads_outer = 10;
 #if defined(__aarch64__)
@@ -247,7 +249,7 @@ uint64_t getTiming(pointer first, pointer second) {
         }
 
         uint64_t res = (rdtsc2() - t0);
-
+        res = res / g_scale_factor;
         if (res < min_res)
             min_res = res;
     }
@@ -684,7 +686,7 @@ int main(int argc, char *argv[]) {
     int samebank_threshold = -1;
     int cpu_affinity = -1;
 
-    while ((c = getopt(argc, argv, "b:c:e:g:m:i:j:ks:t:v:f:")) != EOF) {
+    while ((c = getopt(argc, argv, "b:c:e:r:g:m:i:j:ks:t:v:f:")) != EOF) {
         switch (c) {
         case 'b':
             g_start_bit = atoi(optarg);
@@ -700,6 +702,9 @@ int main(int argc, char *argv[]) {
             break;
         case 'm':
             mapping_size = atol(optarg) * 1024 * 1024;
+            break;
+        case 'r':
+            g_scale_factor = atoi(optarg);
             break;
         case 'i':
             num_reads_outer = atol(optarg);
@@ -996,7 +1001,7 @@ int main(int argc, char *argv[]) {
             if (prob[bits][j] <= 0.01 || prob[bits][j] >= 0.99) {
                 // false positives, this bits are always 0 or 1
                 false_positives.push_back(functions[bits][j]);
-                logInfo("False positive function: %s\n", name_bits(functions[bits][j]));
+                logDebug("False positive function: %s\n", name_bits(functions[bits][j]));
             }
         }
     }
