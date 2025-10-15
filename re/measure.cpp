@@ -44,8 +44,7 @@ size_t num_reads_inner = 1;
 size_t mapping_size = (1ULL<<30); // 1GB default
 size_t expected_sets = 16;
 int g_start_bit = 5; // search start bit
-int g_end_bit = 34; // search end bit
-int g_display_progress = 0;
+int g_end_bit = 40; // search end bit
 char* g_output_file = nullptr;
 
 // ----------------------------------------------
@@ -72,11 +71,11 @@ const char *getCPUModel() {
     char *buffer = NULL;
     size_t n, idx;
     FILE *f = fopen("/proc/cpuinfo", "r");
-    while (getline(&buffer, &n, f)) {
+    while (getline(&buffer, &n, f) > 0) {
         idx = 0;
         if (strncmp(buffer, "Model", 5) == 0 || 
             strncmp(buffer, "model name", 10) == 0) 
-	{
+	    {
             while (buffer[idx] != ':')
                 idx++;
             idx += 2;
@@ -685,7 +684,7 @@ int main(int argc, char *argv[]) {
     int samebank_threshold = -1;
     int cpu_affinity = -1;
 
-    while ((c = getopt(argc, argv, "b:c:d:e:m:i:j:ks:t:v:f:")) != EOF) {
+    while ((c = getopt(argc, argv, "b:c:e:m:i:j:ks:t:v:f:")) != EOF) {
         switch (c) {
         case 'b':
             g_start_bit = atof(optarg);
@@ -695,9 +694,6 @@ int main(int argc, char *argv[]) {
             break;
         case 'c':
             cpu_affinity = atol(optarg);
-            break;
-        case 'd':
-            g_display_progress = atoi(optarg);
             break;
         case 'm':
             mapping_size = atol(optarg) * 1024 * 1024;
@@ -733,23 +729,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    logDebug("CPU: %s\n", getCPUModel());
-    logDebug("Number of reads: %lu x %lu\n", num_reads_outer, num_reads_inner)
-    logDebug("Expected sets: %lu\n", expected_sets);
-
-    // affinity to core cpu_affinity
-    if (cpu_affinity < 0) {
-        cpu_affinity = 0;
-    }
-    logDebug("Setting CPU affinity to core %d\n", cpu_affinity);
-    cpu_set_t set;
-    CPU_ZERO(&set);
-    CPU_SET(cpu_affinity, &set);
-    if (sched_setaffinity(0, sizeof(cpu_set_t), &set) != 0) {
-        perror("sched_setaffinity");
-        exit(1);
-    }
-
     // check mapping size
     // if (mapping_size > getPhysicalMemorySize() / 2) {
     //     logWarning("Mapping size is too large, reducing to %zu MB\n",
@@ -763,7 +742,31 @@ int main(int argc, char *argv[]) {
     setupMapping();
 
     logInfo("Mapping has %zu MB\n", mapping_size / 1024 / 1024);
-    
+
+    logDebug("CPU: %s\n", getCPUModel());
+    logDebug("Number of reads: %lu x %lu\n", num_reads_outer, num_reads_inner)
+    logDebug("Expected sets: %lu\n", expected_sets);
+
+    // affinity to core cpu_affinity
+    if (cpu_affinity < 0) {
+        cpu_affinity = 0;
+    }
+    logInfo("Setting CPU affinity to core %d\n", cpu_affinity);
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(cpu_affinity, &set);
+    if (sched_setaffinity(0, sizeof(cpu_set_t), &set) != 0) {
+        perror("sched_setaffinity");
+        exit(1);
+    }
+    // set high priority
+    int prio = -20;
+    logInfo("Setting priority to %d\n", prio);
+    if (setpriority(PRIO_PROCESS, 0, prio) != 0) {
+        perror("setpriority");
+        exit(1);
+    }
+
     pointer first, second;
     pointer first_phys, second_phys;
     pointer base, base_phys;
@@ -787,8 +790,6 @@ int main(int argc, char *argv[]) {
     base_phys = ait->second;
 
     logDebug("Address pool size: %lu\n", addr_pool.size());
-
-    setpriority(PRIO_PROCESS, 0, -20);
 
 #if defined(__aarch64__) && USE_TIMER_THREAD==1
     int rr = pthread_create(&count_thread, 0, countthread , 0);
@@ -893,6 +894,7 @@ int main(int argc, char *argv[]) {
         if (samebank_threshold > 0) {
             found = samebank_threshold;
         } else {
+            // find a gap of at least 5 empty bins, starting from the right (high cycle counts)
             for (int i = max; i >= min; i--) {
                 if (hist[i] <= 1)
                     empty++;

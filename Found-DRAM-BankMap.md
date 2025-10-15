@@ -1,5 +1,5 @@
 
-## Dell XPS-13/i5-6200U (Skylake, 8 GB, 4 ranks, 2GB/rank, )
+## Dell XPS-13/i5-6200U (Skylake, 8 GB, 4 ranks, 2GB/rank)
 
 	$ sudo ./measure -s 32 -t 340 -m 1024 -v 4
 

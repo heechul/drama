@@ -218,7 +218,7 @@ def main():
                     help='One file per bank (each contains PAs for that bank).')
     ap.add_argument('--lowbit', type=int, default=5,
                     help='Lowest PA bit to include (default: 5 to skip 32B line).')
-    ap.add_argument('--highbit', type=int, default=35,
+    ap.add_argument('--highbit', type=int, default=40,
                     help='Highest PA bit to include (inclusive).')
     ap.add_argument('--verbose', action='store_true', help='Extra prints.')
     args = ap.parse_args()
@@ -317,14 +317,14 @@ def main():
     # X = Nmat (n x s) * W (s x k)  -> n x k
     X = matmul_gf2(Nmat, W)  # n x k
 
-    # Report: each bank-bit j as XOR of a{lowbit+i} where X[i][j] == 1
-    print(f"=== Recovered bank-bit functions (k={k}) ===")
-    for j in range(k):
-        bits = [f"a{lowbit+i}" for i in range(n) if X[i][j] == 1]
-        if bits:
-            print(f"bank_bit[{j}] = {' ⊕ '.join(bits)}")
-        else:
-            print(f"bank_bit[{j}] = 0  (constant)")
+    # # Report: each bank-bit j as XOR of a{lowbit+i} where X[i][j] == 1
+    # print(f"=== Recovered bank-bit functions (k={k}) ===")
+    # for j in range(k):
+    #     bits = [f"a{lowbit+i}" for i in range(n) if X[i][j] == 1]
+    #     if bits:
+    #         print(f"bank_bit[{j}] = {' ⊕ '.join(bits)}")
+    #     else:
+    #         print(f"bank_bit[{j}] = 0  (constant)")
 
     # Show codes assigned to each bank (from representatives)
     # print("\n=== Codes per bank (from representatives) ===")
@@ -400,6 +400,7 @@ def main():
 
     # Optionally,
     # store recovered mapping into a file
+    print("\nStoring recovered mapping to 'recovered_bank_mapping.txt'")
     with open("recovered_bank_mapping.txt", "w") as f:
         for j in range(k):
             bits = [f"{lowbit+i}" for i in range(n) if X[i][j] == 1]
