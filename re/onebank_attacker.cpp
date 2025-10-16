@@ -39,6 +39,7 @@ size_t g_page_size;
 
 int g_scale_factor = 1; // scale factor for timing (to adjust for different CPU speeds)
 int g_access_type = 0; // 0: read, 1: write
+bool g_flush_cacheline = true; // true: flush, false: no flush
 
 // default values
 size_t num_reads_outer = 10;
@@ -270,6 +271,7 @@ void getRandomAddress(pointer *virt) {
 struct ThreadArg {
     int id;
     long *counter;
+    std::vector<pointer> *local_set;
 };
 
 // runtime-detected CPU features for flush instructions
@@ -314,12 +316,13 @@ static void *access_all_thread(void *arg) {
     }
 
     // create a local copy of sets[0] to avoid pointer chasing and improve locality
-    std::vector<pointer> local_set = sets[0];
-    logInfo("Thread %d: accessing %ld addresses in a loop...\n", cpu_id, (long)local_set.size());
+    std::vector<pointer> *local_set = a->local_set;
+
+    logInfo("Thread %d: accessing %ld addresses in a loop...\n", cpu_id, (long)local_set->size());
 
     // prepare raw pointer + size for tight loops (avoids repeated bounds checks)
-    pointer *data = local_set.empty() ? nullptr : local_set.data();
-    size_t n = local_set.size();
+    pointer *data = local_set->empty() ? nullptr : local_set->data();
+    size_t n = local_set->size();
 
     // main loop
     while (!g_quit_signal) {
@@ -327,15 +330,15 @@ static void *access_all_thread(void *arg) {
             // write attack
             for (size_t j = 0; j < n; ++j) {
                 // write to the address and flush it
-                clflushopt((void *)data[j]);
+                if (g_flush_cacheline) clflushopt((void *)data[j]);
                 *((volatile int *)data[j]) = 0xdeadbeef;
             }
         } else {
             // read attack
             for (size_t j = 0; j < n; ++j) {
                 // touch the address and flush it
-                clflushopt((void *)data[j]);
                 *((volatile int *)data[j]);
+                if (g_flush_cacheline) clflushopt((void *)data[j]);
             }
         }
         (*ctr)++;
@@ -403,7 +406,7 @@ int main(int argc, char *argv[]) {
             verbosity = atoi(optarg);
             break;
         case 'f':
-            g_output_file = optarg;
+            g_flush_cacheline = (!strncmp(optarg, "noflush", 7)) ? false : true;
             break;
         case 'n':
             num_threads = atoi(optarg);
@@ -622,12 +625,23 @@ int main(int argc, char *argv[]) {
     std::vector<pthread_t> threads(num_threads);
     std::vector<ThreadArg> args(num_threads);
     std::vector<long> counters(num_threads, 0);
+    std::vector<std::vector<pointer>> local_sets(num_threads);
+
+    // divide sets[0] into num_threads local sets
+    for (int i = 0; i < num_threads; ++i) {
+        local_sets[i].clear();
+    }
+    for (size_t i = 0; i < sets[0].size(); ++i) {
+        local_sets[i % num_threads].push_back(sets[0][i]);
+    }
 
     long t0 = utime();
 
     for (int i = 0; i < num_threads; ++i) {
         args[i].id = cpu_affinity + i;
         args[i].counter = &counters[i];
+        args[i].local_set = &local_sets[i];
+
         int rc = pthread_create(&threads[i], NULL, access_all_thread, &args[i]);
         if (rc != 0) {
             perror("pthread_create");
@@ -650,23 +664,24 @@ int main(int argc, char *argv[]) {
     }
 
     long dur_in_us = utime() - t0;
-    long long accessed_bytes = (long long)sets[0].size() * total_iters * 64LL;
-    printf("Accessed %lld bytes in %ld ms\n", accessed_bytes, dur_in_us/1000);
-    if (dur_in_us > 0) {
-        double mbps = (double)accessed_bytes / (double)dur_in_us * 1000000.0 / (1024.0*1024.0);
-        printf("Bandwidth: %.1f MB/s\n", mbps);
-    } else {
-        printf("Bandwidth: infinite (duration 0)\n");
-    }
+    long long accessed_bytes = 0;
     // per-thread b/w
     for (int i = 0; i < num_threads; ++i) {
-        long long t_bytes = (long long)sets[0].size() * counters[i] * 64LL;
+        long long t_bytes = (long long)local_sets[i].size() * counters[i] * 64LL;
         if (dur_in_us > 0) {
             double mbps = (double)t_bytes / (double)dur_in_us * 1000000.0 / (1024.0*1024.0);
             printf("Thread %d: iters: %ld  Bandwidth: %.1f MB/s\n", i, counters[i], mbps);
         } else {
             printf("Thread %d: iters: %ld  Bandwidth: infinite (duration 0)\n", i, counters[i]);
         }
+        accessed_bytes += t_bytes;
+    }
+    // total b/w
+    if (dur_in_us > 0) {
+        double total_mbps = (double)accessed_bytes / (double)dur_in_us * 1000000.0 / (1024.0*1024.0);
+        printf("Total aggregate bandwidth: %.1f MB/s\n", total_mbps);
+    } else {
+        printf("Total aggregate bandwidth: infinite (duration 0)\n");
     }
     exit(1);
     return 0;
