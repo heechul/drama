@@ -202,6 +202,14 @@ static inline void clflush(volatile void *p) {
 #endif
 }
 
+static inline void clflushopt(volatile void *p) {
+#if defined(__aarch64__)
+    asm volatile("DC CIVAC, %[ad]" : : [ad] "r" (p) : "memory");
+#else
+    asm volatile("clflushopt (%0)" : : "r" (p) : "memory");
+#endif
+}
+
 // ----------------------------------------------
 uint64_t getTiming(pointer first, pointer second) {
     size_t min_res = (-1ull);
@@ -240,64 +248,6 @@ void getRandomAddress(pointer *virt) {
     *virt = (pointer) mapping + offset;
 }
 
-// ----------------------------------------------
-char *formatTime(long ms) {
-    static char buffer[64];
-    long minutes = ms / 60000;
-    if (minutes == 0) {
-        sprintf(buffer, "%.1fs", ms / 1000.0);
-    } else {
-        sprintf(buffer, "%lum %.1lfs", minutes,
-                (ms - minutes * 60000) / 1000.0);
-    }
-    return buffer;
-}
-
-// ----------------------------------------------
-int pop(unsigned x) {
-    x = x - ((x >> 1) & 0x55555555);
-    x = (x & 0x33333333) + ((x >> 2) & 0x33333333);
-    x = (x + (x >> 4)) & 0x0F0F0F0F;
-    x = x + (x >> 8);
-    x = x + (x >> 16);
-    return x & 0x0000003F;
-}
-
-// pop: fast population count (Hamming weight) for 32-bit integers.
-// Returns the number of set bits in `x`.
-
-// ----------------------------------------------
-int xor64(pointer addr) {
-    return (pop(addr & 0xffffffff) + pop((addr >> 32) & 0xffffffff)) & 1;
-}
-
-// xor64: compute parity (XOR of all bits) of a 64-bit value.
-// It uses `pop` to count ones in the low and high 32-bit halves and
-// returns parity (0 or 1). This is used to evaluate parity-based
-// bank-indexing functions.
-
-// ----------------------------------------------
-int apply_bitmask(pointer addr, pointer mask) {
-    return xor64(addr & mask);
-}
-
-// apply_bitmask: apply `mask` to `addr` and return the parity (0/1)
-// of the selected bits. In the context of bank-function discovery, the
-// code checks whether this parity is constant for all addresses in a set.
-
-// ----------------------------------------------
-char *name_bits(pointer mask) {
-    static char name[256], bn[8];
-    strcpy(name, "");
-    for (int i = 0; i < sizeof(pointer) * 8; i++) {
-        if (mask & (1ull << i)) {
-            sprintf(bn, "%d ", i);
-            strcat(name, bn);
-        }
-    }
-    return name;
-}
-
 // Worker thread argument
 struct ThreadArg {
     int id;
@@ -309,19 +259,28 @@ struct ThreadArg {
 static void *access_all_thread(void *arg) {
     ThreadArg *a = (ThreadArg *)arg;
     long *ctr = a->counter;
+    int cpu_id = a->id; // bind thread to core with same id as thread id
 
+    logInfo("Setting CPU affinity to core %d\n", cpu_id);
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(cpu_id, &set);
+    if (sched_setaffinity(0, sizeof(cpu_set_t), &set) != 0) {
+        perror("sched_setaffinity");
+        exit(1);
+    }
     while (!g_quit_signal) {
         if (g_access_type == 1) {
             for (size_t j = 0; j < sets[0].size(); ++j) {
                 // write to the address and flush it
                 *((volatile int *)sets[0][j]) = 0xdeadbeef;
-                clflush((void *)sets[0][j]);
+                clflushopt((void *)sets[0][j]);
             }
         } else {
             for (size_t j = 0; j < sets[0].size(); ++j) {
                 // touch the address and flush it
                 *((volatile int *)sets[0][j]);
-                clflush((void *)sets[0][j]);
+                clflushopt((void *)sets[0][j]);
             }
         }
         (*ctr)++;
@@ -342,10 +301,12 @@ int main(int argc, char *argv[]) {
     size_t hist[MAX_HIST_SIZE];
     int c;
     int samebank_threshold = -1;
-    int cpu_affinity = -1;
-
+    int cpu_affinity = 0;
+    int target_n = 125; // target number of addresses per set
     int num_threads = 1;
-    while ((c = getopt(argc, argv, "a:b:c:e:r:g:m:i:j:ks:t:v:f:n:")) != EOF) {
+
+    // parse command line arguments
+    while ((c = getopt(argc, argv, "a:b:c:e:r:g:m:i:j:k:s:t:v:f:n:")) != EOF) {
         switch (c) {
         case 'a':
             g_access_type = (!strncmp(optarg, "write", 5)) ? 1 : 0;
@@ -374,6 +335,9 @@ int main(int argc, char *argv[]) {
         case 'j':
             num_reads_inner = atol(optarg);
             break;
+        case 'k':
+            target_n = atoi(optarg);
+            break;
         case 's':
             expected_sets = atoi(optarg);
             break;
@@ -396,7 +360,7 @@ int main(int argc, char *argv[]) {
             break;
         default:
             printf(
-                "Usage %s [-m <memory size in MB> | -g <memory size in GB>] [-i <number of outer loops>] [-j <number of inner loops>] [-s <expected sets>] [-t <threshold cycles>] [-f <output file>]\n",
+                "Usage %s [-m <memory size in MB> | -g <memory size in GB>] [-i <number of outer loops>] [-j <number of inner loops>] [-k <target addresses per set>] [-s <expected sets>] [-t <threshold cycles>] [-f <output file>]\n",
                 argv[0]);
             exit(0);
             break;
@@ -413,33 +377,18 @@ int main(int argc, char *argv[]) {
     logDebug("Number of reads: %lu x %lu\n", num_reads_outer, num_reads_inner)
     logDebug("Expected sets: %lu\n", expected_sets);
 
-    // // affinity to core cpu_affinity
-    // if (cpu_affinity < 0) {
-    //     cpu_affinity = 0;
-    // }
-    // logInfo("Setting CPU affinity to core %d\n", cpu_affinity);
-    // cpu_set_t set;
-    // CPU_ZERO(&set);
-    // CPU_SET(cpu_affinity, &set);
-    // if (sched_setaffinity(0, sizeof(cpu_set_t), &set) != 0) {
-    //     perror("sched_setaffinity");
-    //     exit(1);
-    // }
-
     pointer first, second;
     pointer base;
 
     int found_sets = 0;
     int found_siblings = 0;
 
-    tries = expected_sets * 125; // DEBUG: original 125.
+    tries = expected_sets * target_n; // DEBUG: original 125.
 
     // build address pool
-    while (int cur_count = addr_pool.size() < tries) {
+    for (int i = 0; i < tries; i++) {
         getRandomAddress(&second);
         addr_pool.insert(second);
-        // if (cur_count != addr_pool.size())
-        //     logDebug("addr_pool[%ld]: 0x%0lx\n", addr_pool.size(), second_phys);
     }
 
     auto ait = addr_pool.begin();
@@ -472,7 +421,7 @@ int main(int argc, char *argv[]) {
     int failed;
     uint64_t measure_count = 0;
 
-    while (found_sets < expected_sets) {
+    while (found_sets == 0) {
         for (size_t i = 0; i < MAX_HIST_SIZE; ++i)
             hist[i] = 0;
         failed = 0;
@@ -572,7 +521,7 @@ int main(int argc, char *argv[]) {
 
         new_set.push_back(base); // this is needed. another bug in the original code
 
-        // remove found addresses from pool
+        // add all addresses with timing >= found && <= max (= row conflict)
         for (hit = timing.begin(); hit != timing.end(); hit++) {
             if (hit->first >= found && hit->first <= max) {
                 for (std::list<addrpair>::iterator it = hit->second.begin();
@@ -620,21 +569,6 @@ int main(int argc, char *argv[]) {
     logDebug("Done measuring. found_sets: %d found_siblings: %d\n",
              found_sets, found_siblings);
 
-    for (int set = 0; set < sets.size(); set++) {
-        logInfo("Set %d: count: %ld\n",
-                set + 1, sets[set].size());
-        char filename[100];
-        sprintf(filename, "set%d_va.txt", set + 1);
-        FILE *f = fopen(filename, "w"); // overwrite if file exists
-        if (!f) {
-            logWarning("Cannot open file %s for writing\n", filename);
-            continue;
-        }
-        for (int j = 0; j < sets[set].size(); j++) {
-            fprintf(f, "  0x%lx\n", sets[set][j]);
-        }
-        fclose(f);
-    }
     
     // access all addresses in the sets[0] using multiple threads
     if (sets.empty()) {
@@ -653,7 +587,7 @@ int main(int argc, char *argv[]) {
     long t0 = utime();
 
     for (int i = 0; i < num_threads; ++i) {
-        args[i].id = i;
+        args[i].id = cpu_affinity + i;
         args[i].counter = &counters[i];
         int rc = pthread_create(&threads[i], NULL, access_all_thread, &args[i]);
         if (rc != 0) {
