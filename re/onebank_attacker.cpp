@@ -317,16 +317,15 @@ static void *access_all_thread(void *arg) {
             // write attack
             for (size_t j = 0; j < sets[0].size(); ++j) {
                 // write to the address and flush it
+                clflushopt((void *)sets[0][j]);
                 *((volatile int *)sets[0][j]) = 0xdeadbeef;
-                clflush((void *)sets[0][j]);
             }
-            sfence();
-        } else { 
+        } else {
             // read attack
             for (size_t j = 0; j < sets[0].size(); ++j) {
                 // touch the address and flush it
-                *((volatile int *)sets[0][j]);
                 clflushopt((void *)sets[0][j]);
+                *((volatile char *)sets[0][j]);
             }
         }
         (*ctr)++;
