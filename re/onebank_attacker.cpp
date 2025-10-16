@@ -28,6 +28,7 @@
 #include <sys/ioctl.h>
 #include "measure.h"
 #include <pthread.h>
+#include <cpuid.h>
 
 
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
@@ -210,6 +211,23 @@ static inline void clflushopt(volatile void *p) {
 #endif
 }
 
+static inline void clwb(volatile void *p) {
+#if defined(__aarch64__)
+    asm volatile("DC CIVAC, %[ad]" : : [ad] "r" (p) : "memory");
+#else
+    asm volatile("clwb (%0)" : : "r" (p) : "memory");
+#endif
+}
+
+static inline void sfence() {
+#if defined(__aarch64__)
+    asm volatile("DSB SY");
+#else
+    asm volatile("sfence" ::: "memory");
+#endif
+}
+
+
 // ----------------------------------------------
 uint64_t getTiming(pointer first, pointer second) {
     size_t min_res = (-1ull);
@@ -254,6 +272,31 @@ struct ThreadArg {
     long *counter;
 };
 
+// runtime-detected CPU features for flush instructions
+static bool cpu_has_clflushopt = false;
+static bool cpu_has_clwb = false;
+
+static void detect_flush_features() {
+    unsigned int eax, ebx, ecx, edx;
+    if (__get_cpuid_max(0, NULL) >= 7) {
+        __get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx);
+        // CPUID leaf 7 EBX bit 23 = CLFLUSHOPT, bit 24 = CLWB
+        cpu_has_clflushopt = (ebx & (1u << 23)) != 0;
+        cpu_has_clwb = (ebx & (1u << 24)) != 0;
+    }
+}
+
+// Portable flush wrapper: prefer CLWB, then CLFLUSHOPT, then CLFLUSH
+static inline void flush_line(void *p) {
+    if (cpu_has_clwb) {
+        clwb(p);
+    } else if (cpu_has_clflushopt) {
+        clflushopt(p);
+    } else {
+        clflush(p);
+    }
+}
+
 // Each thread repeatedly accesses all addresses in sets[0] until g_quit_signal
 // is set. It increments its own counter for each full traversal of the set.
 static void *access_all_thread(void *arg) {
@@ -271,12 +314,15 @@ static void *access_all_thread(void *arg) {
     }
     while (!g_quit_signal) {
         if (g_access_type == 1) {
+            // write attack
             for (size_t j = 0; j < sets[0].size(); ++j) {
                 // write to the address and flush it
                 *((volatile int *)sets[0][j]) = 0xdeadbeef;
-                clflushopt((void *)sets[0][j]);
+                clflush((void *)sets[0][j]);
             }
-        } else {
+            sfence();
+        } else { 
+            // read attack
             for (size_t j = 0; j < sets[0].size(); ++j) {
                 // touch the address and flush it
                 *((volatile int *)sets[0][j]);
@@ -370,6 +416,7 @@ int main(int argc, char *argv[]) {
     srand(time(NULL));
     g_page_size = sysconf(_SC_PAGESIZE);
     setupMapping();
+    detect_flush_features();
 
     logInfo("Mapping has %zu MB\n", mapping_size / 1024 / 1024);
 
@@ -542,23 +589,6 @@ int main(int argc, char *argv[]) {
 	        logWarning("Set must be wrong, contains too many addresses (expected: %lu/found: %ld). Try again...\n", tries / expected_sets, new_set.size());
             goto search_set;
         }
-
-        // remove found addresses from pool
-        logDebug("Removing found addresses from pool (%lu) -->", addr_pool.size());
-        for (auto it = addr_pool.begin(); it != addr_pool.end();) {
-            int erased = 0;
-            for (auto nit = new_set.begin(); nit != new_set.end(); nit++) {
-                if (*nit == *it) {
-                    it = addr_pool.erase(it);
-                    erased = 1;
-                    break;
-                }
-            }
-            if (!erased) {
-                it++;
-            }
-        }
-        logDebug(" %lu\n", addr_pool.size());
 
         // save identified set if one was found
         sets.push_back(new_set);
