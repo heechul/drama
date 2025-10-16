@@ -312,20 +312,30 @@ static void *access_all_thread(void *arg) {
         perror("sched_setaffinity");
         exit(1);
     }
+
+    // create a local copy of sets[0] to avoid pointer chasing and improve locality
+    std::vector<pointer> local_set = sets[0];
+    logInfo("Thread %d: accessing %ld addresses in a loop...\n", cpu_id, (long)local_set.size());
+
+    // prepare raw pointer + size for tight loops (avoids repeated bounds checks)
+    pointer *data = local_set.empty() ? nullptr : local_set.data();
+    size_t n = local_set.size();
+
+    // main loop
     while (!g_quit_signal) {
         if (g_access_type == 1) {
             // write attack
-            for (size_t j = 0; j < sets[0].size(); ++j) {
+            for (size_t j = 0; j < n; ++j) {
                 // write to the address and flush it
-                clflushopt((void *)sets[0][j]);
-                *((volatile int *)sets[0][j]) = 0xdeadbeef;
+                clflushopt((void *)data[j]);
+                *((volatile int *)data[j]) = 0xdeadbeef;
             }
         } else {
             // read attack
-            for (size_t j = 0; j < sets[0].size(); ++j) {
+            for (size_t j = 0; j < n; ++j) {
                 // touch the address and flush it
-                clflushopt((void *)sets[0][j]);
-                *((volatile char *)sets[0][j]);
+                clflushopt((void *)data[j]);
+                *((volatile int *)data[j]);
             }
         }
         (*ctr)++;
