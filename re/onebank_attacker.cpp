@@ -28,7 +28,6 @@
 #include <sys/ioctl.h>
 #include "measure.h"
 #include <pthread.h>
-#include <cpuid.h>
 
 
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
@@ -274,31 +273,6 @@ struct ThreadArg {
     std::vector<pointer> *local_set;
 };
 
-// runtime-detected CPU features for flush instructions
-static bool cpu_has_clflushopt = false;
-static bool cpu_has_clwb = false;
-
-static void detect_flush_features() {
-    unsigned int eax, ebx, ecx, edx;
-    if (__get_cpuid_max(0, NULL) >= 7) {
-        __get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx);
-        // CPUID leaf 7 EBX bit 23 = CLFLUSHOPT, bit 24 = CLWB
-        cpu_has_clflushopt = (ebx & (1u << 23)) != 0;
-        cpu_has_clwb = (ebx & (1u << 24)) != 0;
-    }
-}
-
-// Portable flush wrapper: prefer CLWB, then CLFLUSHOPT, then CLFLUSH
-static inline void flush_line(void *p) {
-    if (cpu_has_clwb) {
-        clwb(p);
-    } else if (cpu_has_clflushopt) {
-        clflushopt(p);
-    } else {
-        clflush(p);
-    }
-}
-
 // Each thread repeatedly accesses all addresses in sets[0] until g_quit_signal
 // is set. It increments its own counter for each full traversal of the set.
 static void *access_all_thread(void *arg) {
@@ -428,7 +402,6 @@ int main(int argc, char *argv[]) {
     srand(time(NULL));
     g_page_size = sysconf(_SC_PAGESIZE);
     setupMapping();
-    detect_flush_features();
 
     logInfo("Mapping has %zu MB\n", mapping_size / 1024 / 1024);
 
