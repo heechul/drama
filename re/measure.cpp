@@ -50,7 +50,6 @@ char* g_output_file = nullptr;
 
 // ----------------------------------------------
 
-#define ETA_BUFFER 5
 #define MAX_HIST_SIZE 2000
 
 std::vector <std::vector<pointer>> sets;
@@ -161,7 +160,7 @@ long utime() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
 
-    return (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000;
+    return (tv.tv_sec) * 1000000 + (tv.tv_usec);
 }
 
 
@@ -556,8 +555,9 @@ int main(int argc, char *argv[]) {
     int c;
     int samebank_threshold = -1;
     int cpu_affinity = -1;
+    int quit_sets = -1; // number of sets to quit early
 
-    while ((c = getopt(argc, argv, "b:c:e:r:g:m:i:j:ks:t:v:f:")) != EOF) {
+    while ((c = getopt(argc, argv, "b:c:e:r:g:m:i:j:s:q:t:v:f:")) != EOF) {
         switch (c) {
         case 'b':
             g_start_bit = atoi(optarg);
@@ -586,6 +586,9 @@ int main(int argc, char *argv[]) {
         case 's':
             expected_sets = atoi(optarg);
             break;
+        case 'q':
+            quit_sets = atoi(optarg);
+            break;
         case 't':
             samebank_threshold = atoi(optarg);
             break;
@@ -601,7 +604,7 @@ int main(int argc, char *argv[]) {
             break;
         default:
             printf(
-                "Usage %s [-m <memory size in MB> | -g <memory size in GB>] [-i <number of outer loops>] [-j <number of inner loops>] [-s <expected sets>] [-t <threshold cycles>] [-f <output file>]\n",
+                "Usage %s [-m <memory size in MB> | -g <memory size in GB>] [-i <number of outer loops>] [-j <number of inner loops>] [-s <expected sets>] [-q <sets for early quit>] [-t <threshold cycles>] [-f <output file>]\n",
                 argv[0]);
             exit(0);
             break;
@@ -837,6 +840,10 @@ int main(int argc, char *argv[]) {
         found_siblings += new_set.size();
 
         found_sets++;
+        if (quit_sets > 0 && found_sets >= quit_sets) {
+            logInfo("Quitting early after finding %d sets as requested.\n", quit_sets);
+            break;
+        }
     }
     logDebug("Done measuring. found_sets: %d found_siblings: %d\n",
              found_sets, found_siblings);
