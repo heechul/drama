@@ -262,62 +262,14 @@ void getRandomAddress(pointer *virt, pointer *phys) {
     *phys = getPhysicalAddr(*virt);
 }
 
-// ----------------------------------------------
-void clearLine() {
-    printf("\033[2K\r");
+// Count bits in 64-bit word
+static inline int popcount64(uint64_t x) {
+    return __builtin_popcountll(x);
 }
-
-// ----------------------------------------------
-char *formatTime(long ms) {
-    static char buffer[64];
-    long minutes = ms / 60000;
-    if (minutes == 0) {
-        sprintf(buffer, "%.1fs", ms / 1000.0);
-    } else {
-        sprintf(buffer, "%lum %.1lfs", minutes,
-                (ms - minutes * 60000) / 1000.0);
-    }
-    return buffer;
-}
-
-
-// ----------------------------------------------
-pointer next_set_of_n_elements(pointer x) {
-    pointer smallest, ripple, new_smallest, ones;
-
-    if (x == 0)
-        return 0;
-    smallest = (x & -x);
-    ripple = x + smallest;
-    new_smallest = (ripple & -ripple);
-    ones = ((new_smallest / smallest) >> 1) - 1;
-    return ripple | ones;
-}
-
-// next_set_of_n_elements:
-// Generate the next bitmask that has the same number of 1-bits as `x`.
-// This is a standard bit-trick used to enumerate combinations of n bits
-// set among a larger bit width (e.g., enumerate all masks with k ones).
-// Example: given 0b00111 -> returns 0b01011 (next combination).
-// Used by `find_function()` to iterate candidate masks of a fixed Hamming weight.
-
-
-// ----------------------------------------------
-int pop(unsigned x) {
-    x = x - ((x >> 1) & 0x55555555);
-    x = (x & 0x33333333) + ((x >> 2) & 0x33333333);
-    x = (x + (x >> 4)) & 0x0F0F0F0F;
-    x = x + (x >> 8);
-    x = x + (x >> 16);
-    return x & 0x0000003F;
-}
-
-// pop: fast population count (Hamming weight) for 32-bit integers.
-// Returns the number of set bits in `x`.
 
 // ----------------------------------------------
 int xor64(pointer addr) {
-    return (pop(addr & 0xffffffff) + pop((addr >> 32) & 0xffffffff)) & 1;
+    return (popcount64(addr)) & 1;
 }
 
 // xor64: compute parity (XOR of all bits) of a 64-bit value.
@@ -353,80 +305,6 @@ char *name_bits(pointer mask) {
 
 
 // ----------------------------------------------
-std::vector <pointer> find_function(int bits, int pointer_bit, int align_bit) {
-    // find_function:
-    // Search for candidate physical-address bit-masks (XOR functions)
-    // that map addresses of a measured "set" to a constant parity.
-    //
-    // Inputs:
-    //  - bits: number of 1-bits in the candidate mask (the Hamming weight)
-    //  - pointer_bit: pointer size in bits (not used directly here)
-    //  - align_bit: number of low-order bits to ignore (e.g., cache-line offset)
-    //
-    // Output:
-    //  - vector of masks (shifted by global g_start_bit) that are valid
-    //    candidate functions across all measured `sets`.
-    //
-    // Algorithm summary:
-    //  - For each measured set, enumerate all masks with `bits` ones
-    //    (using next_set_of_n_elements).
-    //  - For a candidate mask, compute parity = apply_bitmask(addr >> align_bit, mask)
-    //    for the first address in the set and verify every other address
-    //    in the same set produces the same parity. If so, the mask is valid
-    //    for that set.
-    //  - Intersect the valid masks across all sets. Only masks that are
-    //    consistent for every set survive — those are returned.
-    //
-    // Note: returned masks are left-shifted by g_start_bit to map into the
-    // same bit-indexing convention used elsewhere in the program.
-
-    pointer start_mask = (1ULL << bits) - 1;
-    std::set <pointer> func_pool;
-    for (int set = 0; set < sets.size(); set++) {
-        std::set <pointer> set_func;
-        pointer mask = start_mask;
-        // For each set, enumerate candidate masks with exactly `bits` ones.
-        // We then test whether the parity under that mask is identical for
-        // every address in the set (after shifting by align_bit).
-        while (1) {
-            if (sets[set].size() == 0) break;
-            // check if mask produces same result for all addresses in set
-            int ref = apply_bitmask(sets[set][0] >> align_bit, mask);
-
-            bool insert = true;
-            for (int a = 1; a < sets[set].size(); a++) {
-                if (apply_bitmask(sets[set][a] >> align_bit, mask) != ref) {
-                    insert = false;
-                    break;
-                }
-            }
-            if (insert) {
-                set_func.insert(mask);
-            }
-
-            mask = next_set_of_n_elements(mask);
-            if (mask <= start_mask
-                || (mask & (1ull << (g_end_bit + 1 - align_bit)))) {
-                break;
-            }
-        }
-        // intersect with function pool
-        if (func_pool.empty()) {
-            func_pool.insert(set_func.begin(), set_func.end());
-        }
-        std::set_intersection(set_func.begin(), set_func.end(),
-                              func_pool.begin(), func_pool.end(),
-                              std::inserter(func_pool, func_pool.begin()));
-    }
-    std::vector <pointer> func;
-    for (std::set<pointer>::iterator f = func_pool.begin();
-         f != func_pool.end(); f++) {
-        func.push_back((*f) << g_start_bit);
-    }
-    return func;
-}
-
-// ----------------------------------------------
 std::vector<double> prob_function(std::vector <pointer> masks, int align_bit) {
     std::vector<double> prob;
     for (std::vector<pointer>::iterator it = masks.begin(); it != masks.end();
@@ -443,7 +321,7 @@ std::vector<double> prob_function(std::vector <pointer> masks, int align_bit) {
             for (size_t a = 0; a < sets[set].size(); a++) {
                 if (apply_bitmask(sets[set][a], mask)) ones++;
             }
-#if 1
+#if 0
             // if majority of addresses in the set have parity 1, count this set as 1
             int parity = (ones * 2 >= (int)sets[set].size()) ? 1 : 0;
 #else
@@ -463,11 +341,6 @@ std::vector<double> prob_function(std::vector <pointer> masks, int align_bit) {
 }
 
 // ---------------- GF(2) linear solver helpers ----------------
-
-// Count bits in 64-bit word
-static inline int popcount64(uint64_t x) {
-    return __builtin_popcountll(x);
-}
 
 // Build GF(2) matrix rows as uint64_t if B <= 64. We restrict to B<=64
 // in the simple implementation below to pack columns into a single word.
