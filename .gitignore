@@ -1,0 +1,85 @@
+# Build artifacts
+build/
+bin/
+*/build/
+*/bin/
+*.o
+*.obj
+*.so
+*.a
+*.out
+*.exe
+
+# Make / C build files
+Makefile
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# Editor temporary files
+*~
+*.swp
+*.swo
+.vscode/
+.idea/
+*.code-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and runtime files
+*.log
+core
+*.pid
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Coverage
+coverage/
+*.gcda
+*.gcno
+*.gcov
+
+# Misc
+*.tmp
+*.bak
+*.rej
+
+# Node / JS
+node_modules/
+
+# Ignore custom local config
+local_config.mk
+
+# Nix build
+result
+
+# Rust / Cargo (if present)
+target/
+
+# JetBrains
+*.iml
+
+# Emacs
+*~
+.#*
+
+# Ccache
+.ccache/
+
+# Backup files
+*.orig
+
+# Temporary test outputs
+test-output/
+
+# Note: keep *.txt tracked. If you have generated mapping/text files you want to ignore,
+# add specific patterns here (for example: "*_map.txt" or "generated/*.txt").
+# Example: to ignore only auto-generated maps:
+# *_map.txt
+# generated/*.txt
