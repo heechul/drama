@@ -336,7 +336,7 @@ static void *access_all_thread(void *arg) {
 int main(int argc, char *argv[]) {
     size_t tries, t;
     std::set <pointer> addr_pool;
-    std::map<int, std::list<addrpair> > timing;
+    std::map<int, std::list<pointer> > timing;
     size_t hist[MAX_HIST_SIZE];
     int c;
     int samebank_threshold = -1;
@@ -492,7 +492,7 @@ int main(int argc, char *argv[]) {
             measure_count++;
 
             // sched_yield();
-            timing[t].push_back(std::make_pair(base, first));
+            timing[t].push_back(first);
 
             // advance iterator
             pool_it++;
@@ -501,7 +501,7 @@ int main(int argc, char *argv[]) {
 
         // identify sets -> must be on the right, separated in the histogram
         std::vector <pointer> new_set;
-        std::map < int, std::list < addrpair > > ::iterator hit;
+        std::map < int, std::list < pointer > > ::iterator hit;
         int min = MAX_HIST_SIZE;
         int max = 0;
         int max_v = 0;
@@ -604,9 +604,9 @@ int main(int argc, char *argv[]) {
         // add all addresses with timing >= found && <= max (= row conflict)
         for (hit = timing.begin(); hit != timing.end(); hit++) {
             if (hit->first >= found && hit->first <= max) {
-                for (std::list<addrpair>::iterator it = hit->second.begin();
+                for (std::list<pointer>::iterator it = hit->second.begin();
                      it != hit->second.end(); it++) {
-                    new_set.push_back(it->second);
+                    new_set.push_back(*it);
                 }
             }
         }
