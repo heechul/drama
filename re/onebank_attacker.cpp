@@ -623,6 +623,21 @@ int main(int argc, char *argv[]) {
             goto search_set;
         }
 
+        // validate if all addresses in the new set are indeed same-bank
+        logDebug("Validating set with %lu addresses...\n", new_set.size());
+        for (size_t i = 1; i < new_set.size(); i++) {
+            // re-measure timing (exclude base address at index 0)
+            t = getTiming(base, new_set[i]);
+            if (t < found) {
+                logWarning("Validation failed: address 0x%lx has timing %lu < %d. removing it from the set\n",
+                           new_set[i], t, found);
+                // remove it from the new set
+                new_set.erase(new_set.begin() + i);
+                i--;
+            }
+        }
+        logDebug("Validation done. New set size: %lu\n", new_set.size());
+
         // save identified set if one was found
         sets.push_back(new_set);
         found_siblings += new_set.size();
