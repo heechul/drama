@@ -37,7 +37,7 @@ int verbosity = 1;
 size_t g_page_size;
 
 int g_scale_factor = 1; // scale factor for timing (to adjust for different CPU speeds)
-int g_access_type = 0; // 0: read, 1: write
+volatile int g_access_type = 0; // 0: read, 1: write
 bool g_flush_cacheline = true; // true: flush, false: no flush
 
 // default values
@@ -299,8 +299,15 @@ static void *access_all_thread(void *arg) {
     size_t n = local_set->size();
 
     // main loop
+    int cur_access = g_access_type;
     while (!g_quit_signal) {
-        if (g_access_type == 1) {
+        if (cur_access != g_access_type) {
+            cur_access = g_access_type;
+            logInfo("Thread %d: switching access type to %s\n",
+                    cpu_id, (cur_access == 1) ? "write" : "read");
+            *ctr = 0; // reset counter
+        }
+        if (cur_access == 1) {
             // write attack
             for (size_t j = 0; j < n; ++j) {
                 // write to the address and flush it
@@ -624,16 +631,31 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // if SIGUSR1 is received, set g_access_type to 0 (read)
+    signal(SIGUSR1, [](int signum) {
+        g_access_type = 0;
+    });
+
+    // if SIGUSR2 is received, set g_access_type to 1 (write)
+    signal(SIGUSR2, [](int signum) {
+        g_access_type = 1;
+    });
+
     // main thread just waits for SIGINT to set g_quit_signal
+    int cur_access = g_access_type;
     while (!g_quit_signal) {
+        if (cur_access != g_access_type) {
+            cur_access = g_access_type;
+            printf("Main thread: switching access type to %s\n",
+                    (cur_access == 1) ? "write" : "read");
+            t0 = utime();
+        }
         sleep(1);
     }
 
     // join threads and aggregate counters
-    long long total_iters = 0;
     for (int i = 0; i < num_threads; ++i) {
         pthread_join(threads[i], NULL);
-        total_iters += counters[i];
     }
 
     long dur_in_us = utime() - t0;
