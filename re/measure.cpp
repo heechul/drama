@@ -52,7 +52,7 @@ char* g_output_file = nullptr;
 
 #define MAX_HIST_SIZE 2000
 
-std::vector <std::vector<pointer>> sets;
+std::vector <std::vector<addrpair>> sets;
 std::map<int, std::vector<pointer> > functions;
 
 int g_pagemap_fd = -1;
@@ -318,7 +318,7 @@ std::vector<double> prob_function(std::vector <pointer> masks, int align_bit) {
             // majority voting across addresses in this set for robustness
             int ones = 0;
             for (size_t a = 0; a < sets[set].size(); a++) {
-                if (apply_bitmask(sets[set][a], mask)) ones++;
+                if (apply_bitmask(sets[set][a].second, mask)) ones++;
             }
 #if 0
             // if majority of addresses in the set have parity 1, count this set as 1
@@ -368,9 +368,9 @@ std::vector<pointer> find_function_linear(int bits, int pointer_bit, int align_b
 
     for (size_t s = 0; s < sets.size(); s++) {
         if (sets[s].size() <= 1) continue;
-        uint64_t base = (sets[s][0] >> align_bit) & mask_window;
+        uint64_t base = (sets[s][0].second >> align_bit) & mask_window;
         for (size_t j = 1; j < sets[s].size(); j++) {
-            uint64_t v = ((sets[s][j] >> align_bit) & mask_window) ^ base;
+            uint64_t v = ((sets[s][j].second >> align_bit) & mask_window) ^ base;
             if (v == 0) continue; // trivial equation
             rows.push_back(v);
         }
@@ -728,7 +728,8 @@ int main(int argc, char *argv[]) {
             measure_count++;
 
             // sched_yield();
-            timing[t].push_back(std::make_pair(base_phys, first_phys));
+            // store virtual+physical pair: (virtual, physical)
+            timing[t].push_back(std::make_pair(first, first_phys));
 
             // advance iterator
             pool_it++;
@@ -736,7 +737,7 @@ int main(int argc, char *argv[]) {
         printf("(%lu)\n", measure_count);
 
         // identify sets -> must be on the right, separated in the histogram
-        std::vector <pointer> new_set;
+        std::vector <addrpair> new_set; // virtual and physical address pairs of the identified set
         std::map < int, std::list < addrpair > > ::iterator hit;
         int min = MAX_HIST_SIZE;
         int max = 0;
@@ -794,14 +795,14 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        new_set.push_back(base_phys); // this is needed. another bug in the original code
+        new_set.push_back(std::make_pair(base, base_phys)); // this is needed. another bug in the original code
 
         // remove found addresses from pool
         for (hit = timing.begin(); hit != timing.end(); hit++) {
             if (hit->first >= found && hit->first <= max) {
                 for (std::list<addrpair>::iterator it = hit->second.begin();
                      it != hit->second.end(); it++) {
-                    new_set.push_back(it->second);
+                    new_set.push_back(*it);
                 }
             }
         }
@@ -818,12 +819,25 @@ int main(int argc, char *argv[]) {
             goto search_set;
         }
 
+        // validate if all addresses in the new set are indeed same-bank
+        logDebug("Validating set with %lu addresses...\n", new_set.size());
+        for (size_t i = 0; i < new_set.size(); i++) {
+            t = getTiming(base, new_set[i].first);
+            if (t < found) {
+                logWarning("Validation failed: address 0x%lx has timing %lu < %d. removing it from the set\n",
+                           new_set[i].first, t, found);
+                // remove it from the new set
+                new_set.erase(new_set.begin() + i);
+                i--;
+            }
+        }
+        logDebug("Validation done. New set size: %lu\n", new_set.size());
         // remove found addresses from pool
         logDebug("Removing found addresses from pool (%lu) -->", addr_pool.size());
         for (auto it = addr_pool.begin(); it != addr_pool.end();) {
             int erased = 0;
             for (auto nit = new_set.begin(); nit != new_set.end(); nit++) {
-                if (*nit == it->second) {
+                if (*nit == *it) {
                     it = addr_pool.erase(it);
                     erased = 1;
                     break;
@@ -859,7 +873,7 @@ int main(int argc, char *argv[]) {
             continue;
         }
         for (int j = 0; j < sets[set].size(); j++) {
-            fprintf(f, "  0x%lx\n", sets[set][j]);
+            fprintf(f, "  0x%lx\n", sets[set][j].second);
         }
         fclose(f);
     }
