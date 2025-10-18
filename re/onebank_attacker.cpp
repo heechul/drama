@@ -663,21 +663,13 @@ int main(int argc, char *argv[]) {
     // per-thread b/w
     for (int i = 0; i < num_threads; ++i) {
         long long t_bytes = (long long)local_sets[i].size() * counters[i] * 64LL;
-        if (dur_in_us > 0) {
-            double mbps = (double)t_bytes / (double)dur_in_us * 1000000.0 / (1024.0*1024.0);
-            printf("Thread %d: iters: %ld  Bandwidth: %.1f MB/s\n", i, counters[i], mbps);
-        } else {
-            printf("Thread %d: iters: %ld  Bandwidth: infinite (duration 0)\n", i, counters[i]);
-        }
+        double mbps = (double)t_bytes / (double)dur_in_us * 1000000.0 / (1024.0*1024.0);
+        printf("Thread %d: iters: %ld  Bandwidth: %.1f MB/s\n", i, counters[i], mbps);
         accessed_bytes += t_bytes;
     }
     // total b/w
-    if (dur_in_us > 0) {
-        double total_mbps = (double)accessed_bytes / (double)dur_in_us * 1000000.0 / (1024.0*1024.0);
-        printf("Total aggregate bandwidth: %.1f MB/s\n", total_mbps);
-    } else {
-        printf("Total aggregate bandwidth: infinite (duration 0)\n");
-    }
+    double total_mbps = (double)accessed_bytes / (double)dur_in_us * 1000000.0 / (1024.0*1024.0);
+    printf("Total aggregate bandwidth: %.1f MB/s\n", total_mbps);
     exit(1);
     return 0;
 }
