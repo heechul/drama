@@ -114,9 +114,12 @@
 
 ## AMD Ryzen 9 9900X 12-Core Processor (Zen 5, 2x 32GB DDR5 dimm, 2 ranks/dimm)
 
-	Infered mapping (correct?):
+	Infered mapping:
 	8
 	19
-	12 21 26 31
-	9 22 27 31 32
+	11 20 25
+	12 21 26
+	9 22 27
+	10 23 28
+	13 24 29
 	6 9 10 11 12 13

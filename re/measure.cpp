@@ -778,44 +778,46 @@ int main(int argc, char *argv[]) {
             found = samebank_threshold;
         } else {
             if (samebank_threshold == -2) {
-                // use k-means to find threshold
-                int cluster1 = min;
-                int cluster2 = max;
-                int prev_cluster1 = -1;
-                int prev_cluster2 = -1;
-                int max_iterations = 1000;
+                // weighted k-means for 2 clusters using hist[] as weight
+                double cluster1 = (double)min;
+                double cluster2 = (double)max;
+                double prev_cluster1 = -1e9;
+                double prev_cluster2 = -1e9;
+                int max_iterations = 100;
                 int iterations = 0;
+                const double EPS = 1e-6;
 
-                while ((cluster1 != prev_cluster1 || cluster2 != prev_cluster2) &&
+                while ((fabs(cluster1 - prev_cluster1) > EPS || fabs(cluster2 - prev_cluster2) > EPS) &&
                        iterations < max_iterations) {
                     prev_cluster1 = cluster1;
                     prev_cluster2 = cluster2;
-                    // assign points to clusters
-                    std::vector<int> points1;
-                    std::vector<int> points2;
-                    for (size_t i = min; i <= max; i++) {
-                        if (abs((int)i - cluster1) < abs((int)i - cluster2)) {
-                            points1.push_back(i);
+
+                    double sum1 = 0.0, sum2 = 0.0;
+                    double cnt1 = 0.0, cnt2 = 0.0;
+
+                    for (int b = min; b <= max; b++) {
+                        size_t c = hist[b];
+                        if (c == 0) continue;
+                        double d1 = fabs((double)b - cluster1);
+                        double d2 = fabs((double)b - cluster2);
+                        if (d1 < d2) {
+                            sum1 += c * (double)b;
+                            cnt1 += (double)c;
                         } else {
-                            points2.push_back(i);
+                            sum2 += c * (double)b;
+                            cnt2 += (double)c;
                         }
                     }
-                    // recompute cluster centers
-                    if (!points1.empty()) {
-                        int sum1 = 0;
-                        for (int p : points1) sum1 += p;
-                        cluster1 = sum1 / points1.size();
-                    }
-                    if (!points2.empty()) {
-                        int sum2 = 0;
-                        for (int p : points2) sum2 += p;
-                        cluster2 = sum2 / points2.size();
-                    }
+
+                    if (cnt1 > 0.0) cluster1 = sum1 / cnt1;
+                    if (cnt2 > 0.0) cluster2 = sum2 / cnt2;
+
                     iterations++;
                 }
-                // threshold is midpoint between two clusters but closer to cluster2
-                found = cluster2 - (cluster2 - cluster1) / 4;
-                logDebug("K-means clustering found threshold at %d (cluster1: %d, cluster2: %d)\n", found, cluster1, cluster2);
+
+                found = (int)(cluster2 - (cluster2 - cluster1) / 4.0); // biased towards cluster2
+                logDebug("K-means clustering found threshold at %d (cluster1: %d, cluster2: %d)\n",
+                         found, (int)cluster1, (int)cluster2);
             } else {
                 // find a gap of at least 5 empty bins, starting from the right (high cycle counts)
                 for (int i = max; i >= min; i--) {
