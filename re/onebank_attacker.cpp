@@ -541,7 +541,6 @@ int main(int argc, char *argv[]) {
             found = samebank_threshold;
         } else {
             if (samebank_threshold == -2) {
-             if (samebank_threshold == -2) {
                 // weighted k-means for 2 clusters using hist[] as weight
                 double cluster1 = (double)min;
                 double cluster2 = (double)max;
