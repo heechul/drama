@@ -781,6 +781,7 @@ int main(int argc, char *argv[]) {
                 // weighted k-means for 2 clusters using hist[] as weight
                 double cluster1 = (double)min;
                 double cluster2 = (double)max;
+                double distance1 = 0, distance2 = 0; // average distance to cluster center
                 double prev_cluster1 = -1e9;
                 double prev_cluster2 = -1e9;
                 int max_iterations = 1000;
@@ -794,28 +795,37 @@ int main(int argc, char *argv[]) {
 
                     int64_t sum1 = 0, sum2 = 0;
                     int64_t cnt1 = 0, cnt2 = 0;
+                    int64_t dis1 = 0, dis2 = 0;
 
                     for (int b = min; b <= max; b++) {
                         size_t c = hist[b];
                         if (c == 0) continue;
-                        int d1 = abs(b - cluster1);
-                        int d2 = abs(b - cluster2);
+                        double d1 = fabs((double)b - cluster1);
+                        double d2 = fabs((double)b - cluster2);
                         if (d1 < d2) {
                             sum1 += c * b;
                             cnt1 += c;
+                            dis1 += c * d1;
                         } else {
                             sum2 += c * b;
                             cnt2 += c;
+                            dis2 += c * d2;
                         }
                     }
 
-                    if (cnt1 > 0) cluster1 = (double)sum1 / cnt1;
-                    if (cnt2 > 0) cluster2 = (double)sum2 / cnt2;
+                    if (cnt1 > 0) {
+                        cluster1 = (double)sum1 / cnt1;
+                        distance1 = (double)dis1 / cnt1;
+                    }
+                    if (cnt2 > 0) {
+                        cluster2 = (double)sum2 / cnt2;
+                        distance2 = (double)dis2 / cnt2;
+                    }
 
                     iterations++;
 
-                    logDebug("K-means iteration %d: cluster1: %.2f cluster2: %.2f\n",
-                             iterations, cluster1, cluster2);
+                    logDebug("K-means iteration %d: cluster1: %.2f (+- %.2f) cluster2: %.2f (+- %.2f)\n",
+                             iterations, cluster1, distance1, cluster2, distance2);
                 }
 
                 found = (int)(cluster2 - (cluster2 - cluster1) / 4.0); // biased towards cluster2
@@ -870,7 +880,7 @@ int main(int argc, char *argv[]) {
         for (size_t i = 1; i < new_set.size(); i++) {
             // re-measure timing (exclude base address at index 0)
             t = getTiming(base, new_set[i].first);
-            if (t < found - (found / 50)) { // within 2pct of the threshold is okay
+            if (t < found - 2) { // within 2 cycles of the threshold is okay
                 logWarning("Validation failed: address 0x%lx has timing %lu < %d. removing it from the set\n",
                            new_set[i].first, t, found);
                 // remove it from the new set
@@ -940,7 +950,7 @@ int main(int argc, char *argv[]) {
             if (prob[bits][j] <= 0.01 || prob[bits][j] >= 0.99) {
                 // false positives, this bits are always 0 or 1
                 false_positives.push_back(functions[bits][j]);
-                logDebug("False positive function: %s\n", name_bits(functions[bits][j]));
+                // logDebug("False positive function: %s\n", name_bits(functions[bits][j]));
             }
         }
     }
