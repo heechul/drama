@@ -541,12 +541,13 @@ int main(int argc, char *argv[]) {
             found = samebank_threshold;
         } else {
             if (samebank_threshold == -2) {
-               // weighted k-means for 2 clusters using hist[] as weight
+             if (samebank_threshold == -2) {
+                // weighted k-means for 2 clusters using hist[] as weight
                 double cluster1 = (double)min;
                 double cluster2 = (double)max;
                 double prev_cluster1 = -1e9;
                 double prev_cluster2 = -1e9;
-                int max_iterations = 100;
+                int max_iterations = 1000;
                 int iterations = 0;
                 const double EPS = 1e-6;
 
@@ -555,27 +556,30 @@ int main(int argc, char *argv[]) {
                     prev_cluster1 = cluster1;
                     prev_cluster2 = cluster2;
 
-                    double sum1 = 0.0, sum2 = 0.0;
-                    double cnt1 = 0.0, cnt2 = 0.0;
+                    int64_t sum1 = 0, sum2 = 0;
+                    int64_t cnt1 = 0, cnt2 = 0;
 
                     for (int b = min; b <= max; b++) {
                         size_t c = hist[b];
                         if (c == 0) continue;
-                        double d1 = fabs((double)b - cluster1);
-                        double d2 = fabs((double)b - cluster2);
+                        int d1 = abs(b - cluster1);
+                        int d2 = abs(b - cluster2);
                         if (d1 < d2) {
-                            sum1 += c * (double)b;
-                            cnt1 += (double)c;
+                            sum1 += c * b;
+                            cnt1 += c;
                         } else {
-                            sum2 += c * (double)b;
-                            cnt2 += (double)c;
+                            sum2 += c * b;
+                            cnt2 += c;
                         }
                     }
 
-                    if (cnt1 > 0.0) cluster1 = sum1 / cnt1;
-                    if (cnt2 > 0.0) cluster2 = sum2 / cnt2;
+                    if (cnt1 > 0) cluster1 = (double)sum1 / cnt1;
+                    if (cnt2 > 0) cluster2 = (double)sum2 / cnt2;
 
                     iterations++;
+
+                    logDebug("K-means iteration %d: cluster1: %.2f cluster2: %.2f\n",
+                             iterations, cluster1, cluster2);
                 }
 
                 found = (int)(cluster2 - (cluster2 - cluster1) / 4.0); // biased towards cluster2
