@@ -336,7 +336,7 @@ static void *access_all_thread(void *arg) {
 int main(int argc, char *argv[]) {
     size_t tries, t;
     std::set <pointer> addr_pool;
-    std::map<int, std::list<addrpair> > timing;
+    std::map<int, std::list<pointer> > timing;
     size_t hist[MAX_HIST_SIZE];
     int c;
     int samebank_threshold = -1;
@@ -492,7 +492,7 @@ int main(int argc, char *argv[]) {
             measure_count++;
 
             // sched_yield();
-            timing[t].push_back(std::make_pair(base, first));
+            timing[t].push_back(first);
 
             // advance iterator
             pool_it++;
@@ -501,7 +501,7 @@ int main(int argc, char *argv[]) {
 
         // identify sets -> must be on the right, separated in the histogram
         std::vector <pointer> new_set;
-        std::map < int, std::list < addrpair > > ::iterator hit;
+        std::map < int, std::list < pointer > > ::iterator hit;
         int min = MAX_HIST_SIZE;
         int max = 0;
         int max_v = 0;
@@ -540,15 +540,58 @@ int main(int argc, char *argv[]) {
         if (samebank_threshold > 0) {
             found = samebank_threshold;
         } else {
-            // find a gap of at least 5 empty bins, starting from the right (high cycle counts)
-            for (int i = max; i >= min; i--) {
-                if (hist[i] <= 1)
-                    empty++;
-                else
-                    empty = 0;
-                if (empty >= 5) {
-                    found = i + empty;
-                    break;
+            if (samebank_threshold == -2) {
+               // weighted k-means for 2 clusters using hist[] as weight
+                double cluster1 = (double)min;
+                double cluster2 = (double)max;
+                double prev_cluster1 = -1e9;
+                double prev_cluster2 = -1e9;
+                int max_iterations = 100;
+                int iterations = 0;
+                const double EPS = 1e-6;
+
+                while ((fabs(cluster1 - prev_cluster1) > EPS || fabs(cluster2 - prev_cluster2) > EPS) &&
+                       iterations < max_iterations) {
+                    prev_cluster1 = cluster1;
+                    prev_cluster2 = cluster2;
+
+                    double sum1 = 0.0, sum2 = 0.0;
+                    double cnt1 = 0.0, cnt2 = 0.0;
+
+                    for (int b = min; b <= max; b++) {
+                        size_t c = hist[b];
+                        if (c == 0) continue;
+                        double d1 = fabs((double)b - cluster1);
+                        double d2 = fabs((double)b - cluster2);
+                        if (d1 < d2) {
+                            sum1 += c * (double)b;
+                            cnt1 += (double)c;
+                        } else {
+                            sum2 += c * (double)b;
+                            cnt2 += (double)c;
+                        }
+                    }
+
+                    if (cnt1 > 0.0) cluster1 = sum1 / cnt1;
+                    if (cnt2 > 0.0) cluster2 = sum2 / cnt2;
+
+                    iterations++;
+                }
+
+                found = (int)(cluster2 - (cluster2 - cluster1) / 4.0); // biased towards cluster2
+                logDebug("K-means clustering found threshold at %d (cluster1: %d, cluster2: %d)\n",
+                         found, (int)cluster1, (int)cluster2);
+            } else {
+                // find a gap of at least 5 empty bins, starting from the right (high cycle counts)
+                for (int i = max; i >= min; i--) {
+                    if (hist[i] <= 1)
+                        empty++;
+                    else
+                        empty = 0;
+                    if (empty >= 5) {
+                        found = i + empty;
+                        break;
+                    }
                 }
             }
 
@@ -563,9 +606,9 @@ int main(int argc, char *argv[]) {
         // add all addresses with timing >= found && <= max (= row conflict)
         for (hit = timing.begin(); hit != timing.end(); hit++) {
             if (hit->first >= found && hit->first <= max) {
-                for (std::list<addrpair>::iterator it = hit->second.begin();
+                for (std::list<pointer>::iterator it = hit->second.begin();
                      it != hit->second.end(); it++) {
-                    new_set.push_back(it->second);
+                    new_set.push_back(*it);
                 }
             }
         }
@@ -581,6 +624,21 @@ int main(int argc, char *argv[]) {
 	        logWarning("Set must be wrong, contains too many addresses (expected: %lu/found: %ld). Try again...\n", tries / expected_sets, new_set.size());
             goto search_set;
         }
+
+        // validate if all addresses in the new set are indeed same-bank
+        logDebug("Validating set with %lu addresses...\n", new_set.size());
+        for (size_t i = 1; i < new_set.size(); i++) {
+            // re-measure timing (exclude base address at index 0)
+            t = getTiming(base, new_set[i]);
+            if (t < found) {
+                logWarning("Validation failed: address 0x%lx has timing %lu < %d. removing it from the set\n",
+                           new_set[i], t, found);
+                // remove it from the new set
+                new_set.erase(new_set.begin() + i);
+                i--;
+            }
+        }
+        logDebug("Validation done. New set size: %lu\n", new_set.size());
 
         // save identified set if one was found
         sets.push_back(new_set);
