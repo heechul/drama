@@ -448,11 +448,6 @@ int main(int argc, char *argv[]) {
     logDebug("Done: %ld\n", counter);    
 #endif
 
-    // if SIGINT is received, set g_quit_signal to 1
-    signal(SIGINT, [](int signum) {
-        g_quit_signal = 1;
-    });
-
     // row hit timing
     t = getTiming(base, base + 64);
     logInfo("Average ROW hit cycles: %ld \n", t);
@@ -691,6 +686,11 @@ int main(int argc, char *argv[]) {
             break;
         }
     }
+
+    // if SIGINT is received, set g_quit_signal to 1
+    signal(SIGINT, [](int signum) {
+        g_quit_signal = 1;
+    });
 
     // if SIGUSR1 is received, set g_access_type to 0 (read)
     signal(SIGUSR1, [](int signum) {
