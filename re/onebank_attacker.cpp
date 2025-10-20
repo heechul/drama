@@ -213,7 +213,7 @@ static inline void clflushopt(volatile void *p) {
 
 static inline void clwb(volatile void *p) {
 #if defined(__aarch64__)
-    asm volatile("DC CIVAC, %[ad]" : : [ad] "r" (p) : "memory");
+    asm volatile("DC CVAC, %[ad]" : : [ad] "r" (p) : "memory");
 #else
     asm volatile("clwb (%0)" : : "r" (p) : "memory");
 #endif
@@ -311,8 +311,8 @@ static void *access_all_thread(void *arg) {
             // write attack
             for (size_t j = 0; j < n; ++j) {
                 // write to the address and flush it
-                if (g_flush_cacheline) clflushopt((void *)data[j]);
                 *((volatile int *)data[j]) = 0xdeadbeef;
+                if (g_flush_cacheline) clwb((void *)data[j]); // if clwb is not supported, use clflushopt or clflush instead
             }
         } else {
             // read attack
