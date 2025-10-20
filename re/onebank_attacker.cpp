@@ -219,6 +219,25 @@ static inline void clwb(volatile void *p) {
 #endif
 }
 
+static inline int isClwbSupported() {
+    static int ret = -1;
+    if (ret != -1)
+        return ret;
+
+#if defined(__x86_64__)
+    uint32_t eax, ebx, ecx, edx;
+    eax = 7;
+    ecx = 0;
+    asm volatile("cpuid"
+                 : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+                 : "a"(eax), "c"(ecx));
+    ret = ((ebx & (1 << 24)) != 0); // check bit 24 of EBX
+#else
+    ret = 1; // not x86_64
+#endif
+    return ret;
+}
+
 static inline void sfence() {
 #if defined(__aarch64__)
     asm volatile("DSB SY");
@@ -312,7 +331,12 @@ static void *access_all_thread(void *arg) {
             for (size_t j = 0; j < n; ++j) {
                 // write to the address and flush it
                 *((volatile int *)data[j]) = 0xdeadbeef;
-                if (g_flush_cacheline) clwb((void *)data[j]); // if clwb is not supported, use clflushopt or clflush instead
+                if (g_flush_cacheline) {
+                    if (isClwbSupported())
+                        clwb((void *)data[j]); // if clwb is not supported, use clflushopt or clflush instead
+                    else
+                        clflushopt((void *)data[j]);
+                }
             }
         } else {
             // read attack
@@ -415,6 +439,13 @@ int main(int argc, char *argv[]) {
     logDebug("CPU: %s\n", getCPUModel());
     logDebug("Number of reads: %lu x %lu\n", num_reads_outer, num_reads_inner)
     logDebug("Expected sets: %lu\n", expected_sets);
+
+    // if x86, check if clwb is supported
+#if defined(__x86_64__)
+    if (!isClwbSupported()) {
+        logWarning("%s\n", "Warning: clwb not supported on this CPU, using clflushopt instead");
+    }
+#endif
 
     pointer first, second;
     pointer base;
