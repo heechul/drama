@@ -1,4 +1,4 @@
-all: measure onebank_attacker
+all: measure onebank_attacker allbank_attacker
 
 measure: measure.cpp
 	g++ -g -std=c++11 -lm -O3 measure.cpp -o measure -lpthread
