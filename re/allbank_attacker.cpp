@@ -654,9 +654,20 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    printf("Accessing (%s) all addresses in the sets[0] (%ld addresses) with %d threads...\n",
-        (g_access_type==1)?"write":"read",
-        (long)sets[0].size(), num_threads);
+    // calculate total addresses and min set size
+    size_t total_addresses = 0;
+    size_t min_set_size = SIZE_MAX;
+    int set_id = 0;
+    for (const auto& set : sets) {
+        total_addresses += set.size();
+        logInfo("Set[%d] size: %ld\n", set_id, set.size());
+        if (set.size() < min_set_size) {
+            min_set_size = set.size();
+        }
+        set_id++;
+    }
+    printf("Accessing (%s) %ld addresses (%ld in each of the sets[0-%ld]) with %d threads...\n",
+        (g_access_type==1)?"write":"read", min_set_size * sets.size(), min_set_size, sets.size()-1, num_threads);
 
     std::vector<pthread_t> threads(num_threads);
     std::vector<ThreadArg> args(num_threads);
@@ -669,20 +680,10 @@ int main(int argc, char *argv[]) {
     }
 
     // distribute found addresses evenly to each thread's local set
-
-    // find the set with thee smallest size
-    size_t min_set_size = SIZE_MAX;
-    for (const auto& set : sets) {
-        if (set.size() < min_set_size) {
-            min_set_size = set.size();
-        }
-    }
-
-    // distribute found addresses evenly to each thread's local set
     for (size_t j = 0; j < min_set_size; ++j) {
         // distribute addresses from each set to the local sets
         for(int i = 0; i < sets.size(); ++i ) {
-            logDebug("sets[%d][%zu] = 0x%lx\n", i, j, sets[i][j]);
+            if (j == 0) logDebug("sets[%d][%zu] = 0x%lx\n", i, j, sets[i][j]);
             local_sets[j % num_threads].push_back(sets[i][j]);
         }
     }
