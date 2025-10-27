@@ -28,6 +28,10 @@
 #include <sys/ioctl.h>
 #include "measure.h"
 #include <pthread.h>
+#if !defined(__aarch64__)
+#include <emmintrin.h>  // SSE2 for _mm_cvtsi128_si64
+#include <smmintrin.h>  // SSE4.1 for movntdqa
+#endif
 
 
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
@@ -38,7 +42,7 @@ size_t g_page_size;
 
 int g_scale_factor = 1; // scale factor for timing (to adjust for different CPU speeds)
 volatile int g_access_type = 0; // 0: read, 1: write
-bool g_flush_cacheline = true; // true: flush, false: no flush
+int g_cache_mode = 1; // 0: normal cached access, 1: 0 + clflushopt/clwb, 2: 0 + clflush, 3: non-temporal ld/st
 
 // default values
 size_t num_reads_outer = 10;
@@ -251,12 +255,11 @@ static inline uint64_t movnt_load(volatile void *p) {
                  : [val] "=r" (val) : [ad] "r" (p) : "memory");
     return val;
 #else
-    // x86-64: movntdqa for streaming load (WC memory)
-    // Note: this works best with WC memory type
-    uint64_t val;
-    asm volatile("movq (%[ad]), %[val]" 
-                 : [val] "=r" (val) : [ad] "r" (p) : "memory");
-    return val;
+    // x86-64: movntdqa for streaming load (requires SSE4.1)
+    // Note: movntdqa requires 16-byte aligned address and loads 128 bits
+    // We only return the lower 64 bits
+    __m128i xmm_val = _mm_stream_load_si128((__m128i*)p);
+    return _mm_cvtsi128_si64(xmm_val);
 #endif
 }
 
@@ -299,18 +302,36 @@ void getRandomAddress(pointer *virt) {
 }
 
 char *getAccessModeString(int mode) {
-    switch (mode) {
-    case 0:
-        return (char *)"read";
-    case 1:
-        return (char *)"write";
-    case 2:
-        return (char *)"non-temporal read";
-    case 3:
-        return (char *)"non-temporal write";
-    default:
-        return (char *)"unknown";
+    if (g_cache_mode == 0) {        
+        switch (mode) {
+        case 0:
+            return (char *)"read";
+        case 1:
+            return (char *)"write";
+        }
+    } else if (g_cache_mode == 1) {
+        switch (mode) {
+        case 0:
+            return (char *)"read+clflushopt";
+        case 1:
+            return (char *)"write+clwb";
+        }
+    } else if (g_cache_mode == 2) {
+        switch (mode) {
+        case 0:
+            return (char *)"read+clflush";
+        case 1:
+            return (char *)"write+clflush";
+        }
+    } else if (g_cache_mode == 3) {
+        switch (mode) {
+        case 0:
+            return (char *)"non-temporal read";
+        case 1:
+            return (char *)"non-temporal write";
+        }
     }
+    return (char *)"unknown";
 }
 
 // Worker thread argument
@@ -354,30 +375,42 @@ static void *access_all_thread(void *arg) {
                     cpu_id, (cur_access == 1) ? "write" : "read");
             *ctr = 0; // reset counter
         }
-        if (cur_access == 1) {
-            // write attack
-            for (size_t j = 0; j < n; ++j) {
-                // write to the address and flush it
-                *((volatile int *)data[j]) = 0xdeadbeef;
-                if (g_flush_cacheline) clwb((void *)data[j]); // if clwb is not supported, use clflushopt or clflush instead
-            }
-        } else if (cur_access == 0) {
+        if (cur_access == 0) {
             // read attack
             for (size_t j = 0; j < n; ++j) {
-                // touch the address and flush it
-                *((volatile int *)data[j]);
-                if (g_flush_cacheline) clflushopt((void *)data[j]);
+                if (g_cache_mode == 0) {
+                    // normal cached read
+                    *((volatile int *)data[j]);
+                } else if (g_cache_mode == 1) {
+                    // read from the address and flush it
+                    *((volatile int *)data[j]);
+                    clflushopt((void *)data[j]);
+                } else if (g_cache_mode == 2) {
+                    // read from the address and flush it
+                    *((volatile int *)data[j]);
+                    clflush((void *)data[j]);
+                } else if (g_cache_mode == 3) {
+                    // non-temporal read
+                    (void)movnt_load((void *)data[j]);
+                }
             }
-        } else {
-            // non-temporal access attack
+        } else if (cur_access == 1) {
+            // write attack
             for (size_t j = 0; j < n; ++j) {
-                if (cur_access == 3) {
+                if (g_cache_mode == 0) {
+                    // normal cached write
+                    *((volatile int *)data[j]) = 0xdeadbeef;
+                } else if (g_cache_mode == 1) {
+                    // write to the address and clean it
+                    *((volatile int *)data[j]) = 0xdeadbeef;
+                    clwb((void *)data[j]); // if clwb is not supported, use clflushopt or clflush instead
+                } else if (g_cache_mode == 2) {
+                    // write to the address and flush it
+                    *((volatile int *)data[j]) = 0xdeadbeef;
+                    clflush((void *)data[j]);
+                } else if (g_cache_mode == 3) {
                     // non-temporal write
                     movnt_store((void *)data[j], 0xdeadbeef);
-                } else if (cur_access == 2) {
-                    // non-temporal read
-                    volatile uint64_t val = movnt_load((void *)data[j]);
-                    (void)val; // prevent unused variable warning
                 }
             }
         }
@@ -402,7 +435,7 @@ int main(int argc, char *argv[]) {
     while ((c = getopt(argc, argv, "a:b:c:e:r:g:m:i:j:k:s:t:v:f:n:")) != EOF) {
         switch (c) {
         case 'a':
-            g_access_type = atoi(optarg);
+            g_access_type = (strncmp(optarg, "write", 5) == 0) ? 1 : 0;
             break;
         case 'b':
             g_start_bit = atoi(optarg);
@@ -441,7 +474,7 @@ int main(int argc, char *argv[]) {
             verbosity = atoi(optarg);
             break;
         case 'f':
-            g_flush_cacheline = (!strncmp(optarg, "noflush", 7)) ? false : true;
+            g_cache_mode = atoi(optarg);
             break;
         case 'n':
             num_threads = atoi(optarg);
