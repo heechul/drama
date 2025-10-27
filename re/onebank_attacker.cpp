@@ -236,7 +236,7 @@ static inline void movnt_store(volatile void *p, uint64_t value) {
 #if defined(__aarch64__)
     // ARM64: use store with non-temporal hint
     asm volatile("STR %[val], [%[ad]]\n\t"
-                 "DC CIVAC, %[ad]"
+                 "DC CVAC, %[ad]"
                  : : [ad] "r" (p), [val] "r" (value) : "memory");
 #else
     // x86-64: use movnti for non-temporal store
