@@ -227,6 +227,38 @@ static inline void sfence() {
 #endif
 }
 
+// Non-temporal store (bypasses cache)
+static inline void movnt_store(volatile void *p, uint64_t value) {
+#if defined(__aarch64__)
+    // ARM64: use store with non-temporal hint
+    asm volatile("STR %[val], [%[ad]]\n\t"
+                 "DC CIVAC, %[ad]"
+                 : : [ad] "r" (p), [val] "r" (value) : "memory");
+#else
+    // x86-64: use movnti for non-temporal store
+    asm volatile("movnti %[val], (%[ad])" 
+                 : : [ad] "r" (p), [val] "r" (value) : "memory");
+#endif
+}
+
+// Non-temporal load (bypasses cache) - x86 only
+static inline uint64_t movnt_load(volatile void *p) {
+#if defined(__aarch64__)
+    // ARM64: regular load with DC instruction to bypass cache
+    uint64_t val;
+    asm volatile("LDR %[val], [%[ad]]\n\t"
+                 "DC CIVAC, %[ad]"
+                 : [val] "=r" (val) : [ad] "r" (p) : "memory");
+    return val;
+#else
+    // x86-64: movntdqa for streaming load (WC memory)
+    // Note: this works best with WC memory type
+    uint64_t val;
+    asm volatile("movq (%[ad]), %[val]" 
+                 : [val] "=r" (val) : [ad] "r" (p) : "memory");
+    return val;
+#endif
+}
 
 // ----------------------------------------------
 uint64_t getTiming(pointer first, pointer second) {
@@ -264,6 +296,21 @@ void getRandomAddress(pointer *virt) {
     size_t unit_size = (1ULL << g_start_bit);
     size_t offset = (size_t)(rand() % (mapping_size / unit_size)) * unit_size;
     *virt = (pointer) mapping + offset;
+}
+
+char *getAccessModeString(int mode) {
+    switch (mode) {
+    case 0:
+        return (char *)"read";
+    case 1:
+        return (char *)"write";
+    case 2:
+        return (char *)"non-temporal read";
+    case 3:
+        return (char *)"non-temporal write";
+    default:
+        return (char *)"unknown";
+    }
 }
 
 // Worker thread argument
@@ -314,23 +361,30 @@ static void *access_all_thread(void *arg) {
                 *((volatile int *)data[j]) = 0xdeadbeef;
                 if (g_flush_cacheline) clwb((void *)data[j]); // if clwb is not supported, use clflushopt or clflush instead
             }
-        } else {
+        } else if (cur_access == 0) {
             // read attack
             for (size_t j = 0; j < n; ++j) {
                 // touch the address and flush it
                 *((volatile int *)data[j]);
                 if (g_flush_cacheline) clflushopt((void *)data[j]);
             }
+        } else {
+            // non-temporal access attack
+            for (size_t j = 0; j < n; ++j) {
+                if (cur_access == 3) {
+                    // non-temporal write
+                    movnt_store((void *)data[j], 0xdeadbeef);
+                } else if (cur_access == 2) {
+                    // non-temporal read
+                    volatile uint64_t val = movnt_load((void *)data[j]);
+                    (void)val; // prevent unused variable warning
+                }
+            }
         }
         (*ctr)++;
     }
     return NULL;
 }
-
-// name_bits: return a human-readable string listing the bit positions
-// set in `mask`. Example: mask with bits 5 and 7 => "5 7". Used for
-// printing and saving discovered functions.
-
 
 // ----------------------------------------------
 int main(int argc, char *argv[]) {
@@ -348,7 +402,7 @@ int main(int argc, char *argv[]) {
     while ((c = getopt(argc, argv, "a:b:c:e:r:g:m:i:j:k:s:t:v:f:n:")) != EOF) {
         switch (c) {
         case 'a':
-            g_access_type = (!strncmp(optarg, "write", 5)) ? 1 : 0;
+            g_access_type = atoi(optarg);
             break;
         case 'b':
             g_start_bit = atoi(optarg);
@@ -655,8 +709,8 @@ int main(int argc, char *argv[]) {
     }
 
     printf("Accessing (%s) all addresses in the sets[0] (%ld addresses) with %d threads...\n",
-        (g_access_type==1)?"write":"read",
-        (long)sets[0].size(), num_threads);
+            getAccessModeString(g_access_type),
+            (long)sets[0].size(), num_threads);
 
     std::vector<pthread_t> threads(num_threads);
     std::vector<ThreadArg> args(num_threads);
