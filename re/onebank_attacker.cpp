@@ -1,11 +1,7 @@
 // Onebank attacker that targets single bank of the memory 
 
-#include <bitset>
-#include <iostream>
 #include <stdio.h>
 #include <assert.h>
-#include <fcntl.h>
-#include <linux/kernel-page-flags.h>
 #include <stdint.h>
 #include <sys/sysinfo.h>
 #include <sys/mman.h>
@@ -15,23 +11,14 @@
 #include <stdlib.h>
 #include <map>
 #include <list>
-#include <utility>
-#include <fstream>
 #include <set>
 #include <algorithm>
 #include <sys/time.h>
-#include <sys/resource.h>
-#include <sstream>
-#include <iterator>
 #include <math.h>
 #include <signal.h>
-#include <sys/ioctl.h>
 #include "measure.h"
 #include <pthread.h>
 
-
-#define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
-#define MAX_XOR_BITS       15    // orig: 7
 // ------------ global settings ----------------
 int verbosity = 1;
 size_t g_page_size;
@@ -52,19 +39,14 @@ size_t expected_sets = 16; // expected #sets in DRAM
 size_t target_sets = 1; // target #sets to attack
 
 int g_start_bit = 6; // search start bit
-int g_end_bit = 40; // search end bit
-char* g_output_file = nullptr;
 volatile int g_quit_signal = 0;
 // ----------------------------------------------
 
-#define ETA_BUFFER 5
 #define MAX_HIST_SIZE 2000
 
-std::vector <std::vector<pointer>> sets;
-std::map<int, std::vector<pointer> > functions;
+std::vector <std::vector<pointer>> sets; // discovered sets
 
-int g_pagemap_fd = -1;
-void *mapping;
+void *mapping = NULL; // 
 
 // ----------------------------------------------
 size_t getPhysicalMemorySize() {
@@ -100,7 +82,6 @@ const char *getCPUModel() {
 }
 
 // ----------------------------------------------
-uint64_t phy_start_addr;
 
 void setupMapping() {
  
@@ -224,10 +205,6 @@ static inline void movnt_store(volatile void *p, uint64_t value) {
 #endif
 }
 
-static inline void prefetchnta(const char *p, int hint) {
-    asm volatile("prefetchnta (%0)" : : "r" (p) : "memory");
-}
-
 // Non-temporal load (bypasses cache) - x86 only
 static inline uint64_t movnt_load(volatile void *p) {
 #if defined(__aarch64__)
@@ -240,7 +217,7 @@ static inline uint64_t movnt_load(volatile void *p) {
 #else
     // prefetchnta + cached load + clflushopt to simulate non-temporal load
     uint64_t val;
-    prefetchnta((const char *)p, 0);
+    asm volatile("prefetchnta (%0)" : : "r" (p) : "memory");
     val =  *(volatile uint64_t *)p;
     clflushopt(p);
     return val;
@@ -416,16 +393,13 @@ int main(int argc, char *argv[]) {
     int num_threads = 1;
 
     // parse command line arguments
-    while ((c = getopt(argc, argv, "a:b:c:e:r:g:m:i:j:k:l:s:t:v:f:n:")) != EOF) {
+    while ((c = getopt(argc, argv, "a:b:c:r:g:m:i:j:k:l:s:t:v:f:n:")) != EOF) {
         switch (c) {
         case 'a':
             g_access_type = (strncmp(optarg, "write", 5) == 0) ? 1 : 0;
             break;
         case 'b':
             g_start_bit = atoi(optarg);
-            break;
-        case 'e':
-            g_end_bit = atoi(optarg);
             break;
         case 'c':
             cpu_affinity = atoi(optarg);
@@ -473,7 +447,7 @@ int main(int argc, char *argv[]) {
             break;
         default:
             printf(
-                "Usage %s [-m <memory size in MB> | -g <memory size in GB>] [-i <number of outer loops>] [-j <number of inner loops>] [-k <target addresses per set>] [-s <expected sets>] [-t <threshold cycles>] [-f <output file>]\n",
+                "Usage %s [-m <memory size in MB> | -g <memory size in GB>] [-i <number of outer loops>] [-j <number of inner loops>] [-k <target addresses per set>] [-s <expected sets>] [-t <threshold cycles>] [-f <cache mode>] [-l <target sets>]\n",
                 argv[0]);
             exit(0);
             break;
@@ -496,7 +470,7 @@ int main(int argc, char *argv[]) {
     logInfo("Mapping has %zu MB\n", mapping_size / 1024 / 1024);
 
     logDebug("CPU: %s\n", getCPUModel());
-    logDebug("Number of reads: %lu x %lu\n", num_reads_outer, num_reads_inner)
+    logDebug("Number of reads: %lu x %lu\n", num_reads_outer, num_reads_inner);
     logDebug("Expected sets: %lu\n", expected_sets);
 
     pointer first, second;
@@ -817,6 +791,5 @@ int main(int argc, char *argv[]) {
     // total b/w
     double total_mbps = (double)accessed_bytes / (double)dur_in_us * 1000000.0 / (1024.0*1024.0);
     printf("Total aggregate bandwidth: %.1f MB/s\n", total_mbps);
-    exit(1);
     return 0;
 }
