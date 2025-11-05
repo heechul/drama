@@ -51,7 +51,7 @@ size_t mapping_size = (1ULL<<30); // 1GB default
 size_t expected_sets = 16; // expected #sets in DRAM
 size_t target_sets = 1; // target #sets to attack
 
-int g_start_bit = 5; // search start bit
+int g_start_bit = 6; // search start bit
 int g_end_bit = 40; // search end bit
 char* g_output_file = nullptr;
 volatile int g_quit_signal = 0;
