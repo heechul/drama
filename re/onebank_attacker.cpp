@@ -28,10 +28,6 @@
 #include <sys/ioctl.h>
 #include "measure.h"
 #include <pthread.h>
-#if !defined(__aarch64__)
-#include <emmintrin.h>  // SSE2 for _mm_cvtsi128_si64
-#include <smmintrin.h>  // SSE4.1 for movntdqa
-#endif
 
 
 #define POINTER_SIZE       (sizeof(void*) * 8) // #of bits of a pointer
@@ -41,7 +37,7 @@ int verbosity = 1;
 size_t g_page_size;
 
 int g_scale_factor = 1; // scale factor for timing (to adjust for different CPU speeds)
-volatile int g_access_type = 0; // 0: read, 1: write
+int g_access_type = 0; // 0: read, 1: write
 int g_cache_mode = 1; // 0: normal cached access, 1: 0 + clflushopt/clwb, 2: 0 + clflush, 3: non-temporal ld/st
 
 // default values
@@ -52,7 +48,9 @@ size_t num_reads_inner = 10; // need amplication due to low timer resolution in 
 size_t num_reads_inner = 1;
 #endif
 size_t mapping_size = (1ULL<<30); // 1GB default
-size_t expected_sets = 16;
+size_t expected_sets = 16; // expected #sets in DRAM
+size_t target_sets = 1; // target #sets to attack
+
 int g_start_bit = 5; // search start bit
 int g_end_bit = 40; // search end bit
 char* g_output_file = nullptr;
@@ -234,32 +232,37 @@ static inline void sfence() {
 // Non-temporal store (bypasses cache)
 static inline void movnt_store(volatile void *p, uint64_t value) {
 #if defined(__aarch64__)
-    // ARM64: use store with non-temporal hint
+    // ARM64: no native support, use DC instruction to bypass cache
     asm volatile("STR %[val], [%[ad]]\n\t"
                  "DC CVAC, %[ad]"
                  : : [ad] "r" (p), [val] "r" (value) : "memory");
 #else
     // x86-64: use movnti for non-temporal store
-    asm volatile("movnti %[val], (%[ad])" 
+    asm volatile("movnti %[val], (%[ad])"
                  : : [ad] "r" (p), [val] "r" (value) : "memory");
 #endif
+}
+
+static inline void prefetchnta(const char *p, int hint) {
+    asm volatile("prefetchnta (%0)" : : "r" (p) : "memory");
 }
 
 // Non-temporal load (bypasses cache) - x86 only
 static inline uint64_t movnt_load(volatile void *p) {
 #if defined(__aarch64__)
-    // ARM64: regular load with DC instruction to bypass cache
+    // ARM64: no native support, use DC instruction to bypass cache
     uint64_t val;
     asm volatile("LDR %[val], [%[ad]]\n\t"
                  "DC CIVAC, %[ad]"
                  : [val] "=r" (val) : [ad] "r" (p) : "memory");
     return val;
 #else
-    // x86-64: movntdqa for streaming load (requires SSE4.1)
-    // Note: movntdqa requires 16-byte aligned address and loads 128 bits
-    // We only return the lower 64 bits
-    __m128i xmm_val = _mm_stream_load_si128((__m128i*)p);
-    return _mm_cvtsi128_si64(xmm_val);
+    // prefetchnta + cached load + clflushopt to simulate non-temporal load
+    uint64_t val;
+    prefetchnta((const char *)p, 0);
+    val =  *(volatile uint64_t *)p;
+    clflushopt(p);
+    return val;
 #endif
 }
 
@@ -302,7 +305,7 @@ void getRandomAddress(pointer *virt) {
 }
 
 char *getAccessModeString(int mode) {
-    if (g_cache_mode == 0) {        
+    if (g_cache_mode == 0) {
         switch (mode) {
         case 0:
             return (char *)"read";
@@ -391,7 +394,7 @@ static void *access_all_thread(void *arg) {
                     clflush((void *)data[j]);
                 } else if (g_cache_mode == 3) {
                     // non-temporal read
-                    (void)movnt_load((void *)data[j]);
+                    movnt_load((void *)data[j]);
                 }
             }
         } else if (cur_access == 1) {
@@ -432,7 +435,7 @@ int main(int argc, char *argv[]) {
     int num_threads = 1;
 
     // parse command line arguments
-    while ((c = getopt(argc, argv, "a:b:c:e:r:g:m:i:j:k:s:t:v:f:n:")) != EOF) {
+    while ((c = getopt(argc, argv, "a:b:c:e:r:g:m:i:j:k:l:s:t:v:f:n:")) != EOF) {
         switch (c) {
         case 'a':
             g_access_type = (strncmp(optarg, "write", 5) == 0) ? 1 : 0;
@@ -464,6 +467,9 @@ int main(int argc, char *argv[]) {
         case 'k':
             target_n = atoi(optarg);
             break;
+        case 'l':
+            target_sets = atoi(optarg);
+            break;
         case 's':
             expected_sets = atoi(optarg);
             break;
@@ -491,6 +497,15 @@ int main(int argc, char *argv[]) {
             exit(0);
             break;
         }
+    }
+
+    logInfo("Setting CPU affinity to core %d\n", cpu_affinity);
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(cpu_affinity, &set);
+    if (sched_setaffinity(0, sizeof(cpu_set_t), &set) != 0) {
+        perror("sched_setaffinity");
+        exit(1);
     }
 
     srand(time(NULL));
@@ -542,7 +557,7 @@ int main(int argc, char *argv[]) {
     int failed;
     uint64_t measure_count = 0;
 
-    while (found_sets == 0) {
+    while (found_sets < target_sets) {
         for (size_t i = 0; i < MAX_HIST_SIZE; ++i)
             hist[i] = 0;
         failed = 0;
@@ -741,21 +756,36 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    printf("Accessing (%s) all addresses in the sets[0] (%ld addresses) with %d threads...\n",
+    int64_t total_addresses = 0;
+    size_t min_set_size = SIZE_MAX;
+    for (const auto& set : sets) {
+        total_addresses += set.size();
+        if (set.size() < min_set_size) {
+            min_set_size = set.size();
+        }
+    }
+    logInfo("Total %ld addresses found in %zu sets.\n", total_addresses, sets.size());
+    printf("Accessing (%s) addresses in %ld sets (%ld addresses) with %d threads...\n",
             getAccessModeString(g_access_type),
-            (long)sets[0].size(), num_threads);
+            sets.size(), min_set_size * sets.size(), num_threads);
 
     std::vector<pthread_t> threads(num_threads);
     std::vector<ThreadArg> args(num_threads);
     std::vector<long> counters(num_threads, 0);
     std::vector<std::vector<pointer>> local_sets(num_threads);
 
-    // divide sets[0] into num_threads local sets
+    // divide addresses in sets into num_threads local sets
     for (int i = 0; i < num_threads; ++i) {
         local_sets[i].clear();
     }
-    for (size_t i = 0; i < sets[0].size(); ++i) {
-        local_sets[i % num_threads].push_back(sets[0][i]);
+
+    // distribute found addresses evenly to each thread's local set
+    for (size_t j = 0; j < min_set_size; ++j) {
+        // distribute addresses from each set to the local sets
+        for(int i = 0; i < sets.size(); ++i ) {
+            if (j == 0) logDebug("sets[%d][%zu] = 0x%lx\n", i, j, sets[i][j]);
+            local_sets[j % num_threads].push_back(sets[i][j]);
+        }
     }
 
     long t0 = utime();
