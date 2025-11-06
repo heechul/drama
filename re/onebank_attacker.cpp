@@ -1,4 +1,4 @@
-// Onebank attacker that targets single bank of the memory 
+// A DRAM bank attacker which can target a subset DRAM banks
 
 #include <stdio.h>
 #include <assert.h>
