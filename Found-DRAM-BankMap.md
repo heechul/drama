@@ -102,15 +102,15 @@
 
 ## NVIDIA Jetson Orin AGX (Cortex-A78E, LPDDR5, 32GB)
 
-	Infered mapping (correct?):
+	Infered mapping:
 	11 14 16 20 21 22 33
-	9 11 12 16 19 23 27 28
+	11 14 16 20 21 22 33
+	9 13 23 24 27 28 33
 	12 13 18 22 25 29 30 31
 	10 11 12 17 19 20 23 32
 	10 11 13 14 18 27 28 34
-	11 12 13 16 19 24 33 35
-	10 13 17 21 24 25 26 29 34
-	14 15 17 21 25 28 31 34 35
+	14 15 17 21 25 28 31 34
+	10 13 14 15 24 26 28 29 31
 
 ## AMD Ryzen 9 9900X 12-Core Processor (Zen 5, 2x 32GB DDR5 dimm, 2 ranks/dimm)
 
