@@ -26,6 +26,7 @@ Heechul: this is the label-free variant, robust to arbitrary file ordering.
 """
 
 import argparse
+import math
 import sys
 from typing import List, Tuple
 
@@ -210,6 +211,167 @@ def select_unique_columns(Z: List[List[int]], need: int) -> Tuple[List[int], int
     # Fallback to whatever increased rank the most
     return (picked if picked else best_cols, rank)
 
+# -------------------------- Basis utilities --------------------------
+
+ENUM_LIMIT = 16
+
+def popcount(x: int) -> int:
+    return x.bit_count()
+
+def bits_from_mask(mask: int, lowbit: int) -> List[int]:
+    bits = []
+    bit = 0
+    while mask:
+        if mask & 1:
+            bits.append(lowbit + bit)
+        mask >>= 1
+        bit += 1
+    return bits
+
+def row_reduce_masks(rows: List[int], nbits: int) -> List[int]:
+    rows = [r for r in rows if r]
+    rows = rows[:]
+    r = 0
+    for col in range(nbits - 1, -1, -1):
+        piv = None
+        for i in range(r, len(rows)):
+            if (rows[i] >> col) & 1:
+                piv = i
+                break
+        if piv is None:
+            continue
+        rows[r], rows[piv] = rows[piv], rows[r]
+        for i in range(len(rows)):
+            if i != r and ((rows[i] >> col) & 1):
+                rows[i] ^= rows[r]
+        r += 1
+    return [x for x in rows if x]
+
+def matrix_to_masks(X: List[List[int]]) -> List[int]:
+    if not X:
+        return []
+    n = len(X)
+    k = len(X[0]) if X[0] else 0
+    masks = []
+    for j in range(k):
+        mask = 0
+        for i in range(n):
+            if X[i][j]:
+                mask |= (1 << i)
+        masks.append(mask)
+    return masks
+
+def masks_to_matrix(masks: List[int], n: int) -> List[List[int]]:
+    k = len(masks)
+    X = [[0] * k for _ in range(n)]
+    for j, mask in enumerate(masks):
+        for i in range(n):
+            if (mask >> i) & 1:
+                X[i][j] = 1
+    return X
+
+def select_compact_masks(masks: List[int], nbits: int, lowbit: int) -> List[int]:
+    if not masks:
+        return []
+    basis = row_reduce_masks(masks, nbits)
+    if not basis:
+        return []
+    chosen = basis[:]
+    if len(basis) <= ENUM_LIMIT:
+        combos = []
+        n = len(basis)
+        for combo in range(1, 1 << n):
+            vec = 0
+            for idx in range(n):
+                if (combo >> idx) & 1:
+                    vec ^= basis[idx]
+            if vec:
+                combos.append((popcount(vec), bits_from_mask(vec, lowbit), vec))
+        combos.sort()
+
+        selected = []
+        selected_rr = []
+        for _, _, vec in combos:
+            new_rr = row_reduce_masks(selected_rr + [vec], nbits)
+            if len(new_rr) > len(selected_rr):
+                selected.append(vec)
+                selected_rr = new_rr
+                if len(selected) == len(basis):
+                    break
+        if len(selected) == len(basis):
+            chosen = selected
+    chosen.sort(key=lambda m: (popcount(m), bits_from_mask(m, lowbit)))
+    return chosen
+
+def apply_matrix_row(row_bits: List[int], X: List[List[int]]) -> Tuple[int, ...]:
+    if not X:
+        return tuple()
+    n = len(X)
+    k = len(X[0]) if X[0] else 0
+    if k == 0:
+        return tuple()
+    one_cols = [i for i, v in enumerate(row_bits) if v]
+    code = [0] * k
+    for j in range(k):
+        sbit = 0
+        for c in one_cols:
+            sbit ^= X[c][j]
+        code[j] = sbit
+    return tuple(code)
+
+def compute_bank_codes(reps: List[List[int]], X: List[List[int]]) -> List[Tuple[int, ...]]:
+    return [apply_matrix_row(rep, X) for rep in reps]
+
+def verify_addresses(banks: List[List[List[int]]], X: List[List[int]], bank_codes: List[Tuple[int, ...]], verbose: bool = False) -> Tuple[int, int]:
+    mismatches = 0
+    total = 0
+    for b, rows in enumerate(banks):
+        code_b = bank_codes[b]
+        for r in rows:
+            total += 1
+            code = apply_matrix_row(r, X)
+            if code != code_b:
+                mismatches += 1
+                if verbose:
+                    print(f"Mismatch in bank {b}: got {code}, expected {code_b}")
+    return mismatches, total
+
+def remove_constant_bank_bits(X: List[List[int]], banks: List[List[List[int]]]) -> Tuple[List[List[int]], int]:
+    if not X:
+        return X, 0
+    n = len(X)
+    k = len(X[0]) if X[0] else 0
+    if k == 0:
+        return X, 0
+    total = sum(len(rows) for rows in banks)
+    col_sums = [0] * k
+    for rows in banks:
+        for r in rows:
+            one_cols = [i for i, v in enumerate(r) if v]
+            for j in range(k):
+                sbit = 0
+                for c in one_cols:
+                    sbit ^= X[c][j]
+                col_sums[j] += sbit
+    nonconst_cols = [j for j in range(k) if 0 < col_sums[j] < total]
+    if len(nonconst_cols) == k:
+        return X, 0
+    new_X = [[X[i][j] for j in nonconst_cols] for i in range(n)]
+    removed = k - len(nonconst_cols)
+    return new_X, removed
+
+def compact_matrix_columns(X: List[List[int]], nbits: int, lowbit: int) -> List[List[int]]:
+    if not X:
+        return X
+    k = len(X[0]) if X[0] else 0
+    if k == 0:
+        return X
+    masks = matrix_to_masks(X)
+    compact_masks = select_compact_masks(masks, nbits, lowbit)
+    if not compact_masks:
+        return X
+    return masks_to_matrix(compact_masks, nbits)
+
 # -------------------------- Main solver --------------------------
 
 def main():
@@ -235,6 +397,8 @@ def main():
         addrs = read_addr_file(path)
         rows = [build_bitvec(a, lowbit, highbit) for a in addrs]
         banks.append(rows)
+
+    total_addresses = sum(len(rows) for rows in banks)
 
     B = len(banks)
     n = highbit - lowbit + 1
@@ -285,7 +449,6 @@ def main():
     Z = matmul_gf2(R, Nmat)  # B x s
 
     # Choose minimal k columns from Z that give unique bank codes
-    import math
     need_k = max(math.ceil(math.log2(B)), 1) if B > 1 else 1
     picked_cols, rankZ = select_unique_columns(Z, need_k)
     if args.verbose:
@@ -317,75 +480,25 @@ def main():
     # X = Nmat (n x s) * W (s x k)  -> n x k
     X = matmul_gf2(Nmat, W)  # n x k
 
-    # # Report: each bank-bit j as XOR of a{lowbit+i} where X[i][j] == 1
-    # print(f"=== Recovered bank-bit functions (k={k}) ===")
-    # for j in range(k):
-    #     bits = [f"a{lowbit+i}" for i in range(n) if X[i][j] == 1]
-    #     if bits:
-    #         print(f"bank_bit[{j}] = {' ⊕ '.join(bits)}")
-    #     else:
-    #         print(f"bank_bit[{j}] = 0  (constant)")
+    X, removed_consts = remove_constant_bank_bits(X, banks)
+    if removed_consts:
+        print(f"\nNote: removed {removed_consts} constant bank bits (always 0 or 1).")
 
-    # Show codes assigned to each bank (from representatives)
-    # print("\n=== Codes per bank (from representatives) ===")
-    bank_codes = []
-    for b in range(B):
-        # code = reps[b] (1 x n) * X (n x k) -> (1 x k)
-        row = [reps[b][i] for i in range(n)]
-        code = [0]*k
-        one_cols = [i for i,v in enumerate(row) if v]
-        for j in range(k):
-            sbit = 0
-            for c in one_cols:
-                sbit ^= X[c][j]
-            code[j] = sbit
-        bank_codes.append(tuple(code))
-        # print(f"Bank {b}: {''.join(str(x) for x in code)}  (binary)")
+    X = compact_matrix_columns(X, n, lowbit)
+    k = len(X[0]) if X and X[0] else 0
+    if not X:
+        print("\nNo bank-bit functions remain after compaction.")
 
-    # Verify: every address in each bank maps to that bank's code
+    bank_codes = compute_bank_codes(reps, X)
+
     print("\n=== Verification on all input addresses ===")
-    mismatches = 0
-    total = 0
-    for b, rows in enumerate(banks):
-        code_b = bank_codes[b]
-        for r in rows:
-            total += 1
-            # r * X
-            one_cols = [i for i,v in enumerate(r) if v]
-            code = [0]*k
-            for j in range(k):
-                sbit = 0
-                for c in one_cols:
-                    sbit ^= X[c][j]
-                code[j] = sbit
-            if tuple(code) != code_b:
-                mismatches += 1
-                if args.verbose:
-                    print(f"Mismatch in bank {b}: got {code}, expected {code_b}")
+    mismatches, total = verify_addresses(banks, X, bank_codes, args.verbose)
     if mismatches == 0:
         print(f"OK: all {total} addresses map consistently to their bank codes.")
     else:
         print(f"WARNING: {mismatches}/{total} addresses did not map to their bank code.")
         print("This often means the chosen bit window missed some true mapping bits,")
         print("or some addresses are mislabeled/noisy. Try increasing --highbit.")
-
-    # remove false positive bank bit that is always 0 or 1 across all addresses
-    col_sums = [0]*k
-    for b, rows in enumerate(banks):
-        for r in rows:
-            one_cols = [i for i,v in enumerate(r) if v]
-            for j in range(k):
-                sbit = 0
-                for c in one_cols:
-                    sbit ^= X[c][j]
-                col_sums[j] += sbit
-    nonconst_cols = [j for j in range(k) if 0 < col_sums[j] < total]
-    if len(nonconst_cols) < k:
-        print(f"\nNote: removed {k - len(nonconst_cols)} constant bank bits (always 0 or 1).")
-        k = len(nonconst_cols)
-        X = [[X[i][j] for j in nonconst_cols] for i in range(n)]
-        bank_codes = [tuple(code[j] for j in nonconst_cols) for code in bank_codes]
-        print(f"Now k={k} non-constant bank bits remain.")
 
     # Final report
     print("\n=== Final recovered bank-bit functions ===")
