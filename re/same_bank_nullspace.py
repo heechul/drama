@@ -102,7 +102,44 @@ def main():
     if not filtered_masks:
         print("No nontrivial constant masks found.")
         return
-    for m in filtered_masks:
+
+    compact_masks = row_reduce(filtered_masks)
+    if not compact_masks:
+        print("No compact masks remain after reduction.")
+        return
+
+    ENUM_LIMIT = 16
+    chosen_masks = compact_masks[:]
+    if len(compact_masks) <= ENUM_LIMIT:
+        combos = []
+        n = len(compact_masks)
+        for combo in range(1, 1 << n):
+            vec = 0
+            for idx in range(n):
+                if (combo >> idx) & 1:
+                    vec ^= compact_masks[idx]
+            if vec:
+                bit_list = bits_of(vec)
+                combos.append((len(bit_list), bit_list, vec))
+        combos.sort()
+
+        selected = []
+        selected_rr = []
+        for _, _, vec in combos:
+            new_rr = row_reduce(selected_rr + [vec])
+            if len(new_rr) > len(selected_rr):
+                selected.append(vec)
+                selected_rr = new_rr
+                if len(selected) == len(compact_masks):
+                    break
+        if len(selected) == len(compact_masks):
+            chosen_masks = selected
+
+    def sort_key(mask):
+        bit_list = bits_of(mask)
+        return (len(bit_list), bit_list)
+
+    for m in sorted(chosen_masks, key=sort_key):
         print(" ".join(f"{b}" for b in bits_of(m)))
 
 if __name__ == "__main__":
