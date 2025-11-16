@@ -16,6 +16,8 @@
 #include <utility>
 #include <fstream>
 #include <set>
+#include <queue>
+#include <string>
 #include <algorithm>
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -34,6 +36,9 @@ int verbosity = 1;
 size_t g_page_size;
 
 int g_scale_factor = 1;
+
+int enable_bg_detection = 1;
+int bg_samples_per_pair = 5;
 
 // default values
 size_t num_reads_outer = 10;
@@ -54,6 +59,26 @@ char* g_output_file = nullptr;
 
 std::vector <std::vector<addrpair>> sets;
 std::map<int, std::vector<pointer> > functions;
+
+struct PairTiming {
+    int set_a;
+    int set_b;
+    double timing;
+};
+
+struct BGThresholdInfo {
+    double threshold;
+    double low_center;
+    double high_center;
+    bool valid;
+};
+
+struct BGFunctionCandidate {
+    pointer mask;
+    int bits;
+    double accuracy;
+    double coverage;
+};
 
 int g_pagemap_fd = -1;
 void *mapping;
@@ -301,6 +326,279 @@ char *name_bits(pointer mask) {
 // name_bits: return a human-readable string listing the bit positions
 // set in `mask`. Example: mask with bits 5 and 7 => "5 7". Used for
 // printing and saving discovered functions.
+
+
+double min_pair_timing(const std::vector<addrpair>& first_set,
+                          const std::vector<addrpair>& second_set,
+                          int samples_per_pair) {
+    if (first_set.empty() || second_set.empty()) return 0.0;
+    if (samples_per_pair <= 0) samples_per_pair = 1;
+
+    double min_timing = -1.0;
+    for (int s = 0; s < samples_per_pair; s++) {
+        const addrpair& lhs = first_set[rand() % first_set.size()];
+        const addrpair& rhs = second_set[rand() % second_set.size()];
+        double timing = static_cast<double>(getTiming(lhs.first, rhs.first));
+        if (min_timing < 0 || timing < min_timing) {
+            min_timing = timing;
+        }
+    }
+
+    return min_timing;
+}
+
+std::vector<PairTiming> collect_pair_timings(
+        const std::vector<std::vector<addrpair>>& input_sets,
+        int samples_per_pair) {
+    std::vector<PairTiming> measurements;
+    if (input_sets.size() < 2) return measurements;
+
+    for (size_t i = 0; i < input_sets.size(); i++) {
+        for (size_t j = i + 1; j < input_sets.size(); j++) {
+            double timing = min_pair_timing(input_sets[i], input_sets[j], samples_per_pair);
+            if (timing <= 0.0) continue;
+            measurements.push_back({static_cast<int>(i), static_cast<int>(j), timing});
+            logInfo("BG timing set %zu vs %zu => %.2f\n", i + 1, j + 1, timing);
+        }
+    }
+
+    logInfo("Collected %zu inter-set timing samples for BG detection (samples=%d).\n",
+            measurements.size(), samples_per_pair);
+    return measurements;
+}
+
+BGThresholdInfo compute_bg_threshold(const std::vector<PairTiming>& pair_timings) {
+    BGThresholdInfo info{0.0, 0.0, 0.0, false};
+    if (pair_timings.size() < 2) return info;
+
+    double min_v = pair_timings[0].timing;
+    double max_v = pair_timings[0].timing;
+    for (const auto& pt : pair_timings) {
+        if (pt.timing < min_v) min_v = pt.timing;
+        if (pt.timing > max_v) max_v = pt.timing;
+    }
+
+    if (fabs(max_v - min_v) < 1.0) return info;
+
+    double c1 = min_v;
+    double c2 = max_v;
+    const double EPS = 1e-3;
+
+    for (int iter = 0; iter < 100; iter++) {
+        double sum1 = 0.0, sum2 = 0.0;
+        int cnt1 = 0, cnt2 = 0;
+        for (const auto& pt : pair_timings) {
+            double d1 = fabs(pt.timing - c1);
+            double d2 = fabs(pt.timing - c2);
+            if (d1 <= d2) {
+                sum1 += pt.timing;
+                cnt1++;
+            } else {
+                sum2 += pt.timing;
+                cnt2++;
+            }
+        }
+        if (cnt1 == 0 || cnt2 == 0) {
+            return info;
+        }
+        double new_c1 = sum1 / cnt1;
+        double new_c2 = sum2 / cnt2;
+        if (fabs(new_c1 - c1) < EPS && fabs(new_c2 - c2) < EPS) break;
+        c1 = new_c1;
+        c2 = new_c2;
+    }
+
+    if (c1 > c2) std::swap(c1, c2);
+    if (fabs(c2 - c1) < 1.0) return info;
+
+    info.low_center = c1;
+    info.high_center = c2;
+    info.threshold = c1 + (c2 - c1) / 2.0 + 4.0; // margin
+    info.valid = true;
+    return info;
+}
+
+std::vector<int> derive_bg_labels(const std::vector<PairTiming>& pair_timings,
+                                  const BGThresholdInfo& info,
+                                  size_t set_count) {
+    std::vector<int> labels(set_count, -1);
+    if (!info.valid || set_count == 0) return labels;
+
+    std::vector<std::vector<bool>> adjacency(set_count, std::vector<bool>(set_count, false));
+    for (const auto& pt : pair_timings) {
+        if (pt.set_a < 0 || pt.set_b < 0) continue;
+        if (pt.set_a >= static_cast<int>(set_count) ||
+            pt.set_b >= static_cast<int>(set_count)) continue;
+        bool same_group = pt.timing >= info.threshold;
+        adjacency[pt.set_a][pt.set_b] = same_group;
+        adjacency[pt.set_b][pt.set_a] = same_group;
+    }
+
+    int group_id = 0;
+    std::queue<int> bfs;
+    for (size_t i = 0; i < set_count; i++) {
+        if (labels[i] != -1) continue;
+        labels[i] = group_id;
+        bfs.push(static_cast<int>(i));
+        while (!bfs.empty()) {
+            int cur = bfs.front();
+            bfs.pop();
+            for (size_t j = 0; j < set_count; j++) {
+                if (!adjacency[cur][j]) continue;
+                if (labels[j] != -1) continue;
+                labels[j] = group_id;
+                bfs.push(static_cast<int>(j));
+            }
+        }
+        group_id++;
+    }
+
+    logInfo("Identified %d bank groups from timing adjacency.\n", group_id);
+    return labels;
+}
+
+int compute_set_parity(const std::vector<addrpair>& set_entries, pointer mask) {
+    if (set_entries.empty()) return 0;
+    int ones = 0;
+    for (const auto& entry : set_entries) {
+        if (apply_bitmask(entry.second, mask)) ones++;
+    }
+    return (ones * 2 >= static_cast<int>(set_entries.size())) ? 1 : 0;
+}
+
+std::vector<BGFunctionCandidate> rank_bg_functions(
+        const std::vector<int>& bg_labels,
+        const std::vector<std::vector<addrpair>>& input_sets,
+        const std::map<int, std::vector<pointer>>& functions,
+        const std::vector<pointer>& false_positives,
+        const std::map<int, std::vector<pointer>>& duplicates) {
+    std::vector<BGFunctionCandidate> ranked;
+    if (bg_labels.empty()) return ranked;
+
+    std::set<pointer> false_positive_set(false_positives.begin(), false_positives.end());
+    std::set<pointer> duplicate_set;
+    for (const auto& kv : duplicates) {
+        for (pointer mask : kv.second) {
+            duplicate_set.insert(mask);
+        }
+    }
+
+    size_t labeled_sets = 0;
+    std::set<int> unique_groups;
+    for (size_t i = 0; i < bg_labels.size(); i++) {
+        if (bg_labels[i] >= 0 && i < input_sets.size() && !input_sets[i].empty()) {
+            labeled_sets++;
+            unique_groups.insert(bg_labels[i]);
+        }
+    }
+
+    if (labeled_sets < 2 || unique_groups.size() < 2) return ranked;
+
+    for (int bits = 1; bits <= MAX_XOR_BITS; bits++) {
+        auto fn_it = functions.find(bits);
+        if (fn_it == functions.end()) continue;
+        for (pointer mask : fn_it->second) {
+            if (false_positive_set.count(mask) > 0) continue;
+            if (duplicate_set.count(mask) > 0) continue;
+
+            std::vector<int> parity_ready(input_sets.size(), 0);
+            std::vector<int> parity_value(input_sets.size(), 0);
+            size_t participating_sets = 0;
+
+            for (size_t set_idx = 0; set_idx < input_sets.size(); set_idx++) {
+                if (set_idx >= bg_labels.size()) break;
+                if (bg_labels[set_idx] < 0) continue;
+                if (input_sets[set_idx].empty()) continue;
+                parity_value[set_idx] = compute_set_parity(input_sets[set_idx], mask);
+                parity_ready[set_idx] = 1;
+                participating_sets++;
+            }
+
+            if (participating_sets < 2) continue;
+
+            std::set<int> parity_values;
+            for (size_t idx = 0; idx < parity_ready.size(); idx++) {
+                if (parity_ready[idx]) parity_values.insert(parity_value[idx]);
+            }
+            if (parity_values.size() < 2) continue;
+
+            int matches = 0;
+            int comparisons = 0;
+            for (size_t i = 0; i < input_sets.size(); i++) {
+                if (!parity_ready[i]) continue;
+                for (size_t j = i + 1; j < input_sets.size(); j++) {
+                    if (!parity_ready[j]) continue;
+                    bool same_group = (bg_labels[i] == bg_labels[j]);
+                    bool same_parity = (parity_value[i] == parity_value[j]);
+                    if (same_group == same_parity) matches++;
+                    comparisons++;
+                }
+            }
+
+            if (comparisons == 0) continue;
+            double accuracy = static_cast<double>(matches) / static_cast<double>(comparisons);
+            double coverage = static_cast<double>(participating_sets) /
+                               static_cast<double>(labeled_sets);
+
+            if (accuracy >= 0.50) {
+                ranked.push_back({mask, bits, accuracy, coverage});
+            }
+        }
+    }
+
+    std::sort(ranked.begin(), ranked.end(), [](const BGFunctionCandidate& lhs,
+                                               const BGFunctionCandidate& rhs) {
+        if (fabs(lhs.accuracy - rhs.accuracy) > 1e-6)
+            return lhs.accuracy > rhs.accuracy;
+        if (fabs(lhs.coverage - rhs.coverage) > 1e-6)
+            return lhs.coverage > rhs.coverage;
+        return lhs.bits < rhs.bits;
+    });
+
+    return ranked;
+}
+
+void print_bg_candidates(const std::vector<BGFunctionCandidate>& candidates) {
+    if (candidates.empty()) {
+        printf("No bank-group candidate functions matched the timing evidence.\n");
+        return;
+    }
+
+    printf("\n=== Bank Group Candidate Functions ===\n");
+    for (const auto& cand : candidates) {
+        printf("%s (bits=%d, accuracy=%.1f%%, coverage=%.1f%%)\n",
+               name_bits(cand.mask),
+               cand.bits,
+               cand.accuracy * 100.0,
+               cand.coverage * 100.0);
+    }
+}
+
+void save_bank_group_functions(const char* base_filename,
+                               const std::vector<BGFunctionCandidate>& candidates) {
+    if (candidates.empty()) return;
+
+    std::string filename = (base_filename && strlen(base_filename) > 0)
+                               ? std::string(base_filename)
+                               : std::string("map.txt");
+    filename += ".bg";
+
+    FILE* fp = fopen(filename.c_str(), "w");
+    if (!fp) {
+        fprintf(stderr, "Error: Cannot open %s for writing bank-group functions\n",
+                filename.c_str());
+        return;
+    }
+
+    for (const auto& cand : candidates) {
+        std::string bits = name_bits(cand.mask);
+        if (!bits.empty() && bits.back() == ' ') bits.pop_back();
+        fprintf(fp, "%s # bits=%d accuracy=%.4f coverage=%.4f\n",
+                bits.c_str(), cand.bits, cand.accuracy, cand.coverage);
+    }
+    fclose(fp);
+    printf("Bank-group mapping functions saved to %s\n", filename.c_str());
+}
 
 
 // ----------------------------------------------
@@ -557,7 +855,7 @@ int main(int argc, char *argv[]) {
     int cpu_affinity = -1;
     int quit_sets = -1; // number of sets to quit early
 
-    while ((c = getopt(argc, argv, "b:c:e:r:g:m:i:j:s:q:t:v:f:")) != EOF) {
+    while ((c = getopt(argc, argv, "b:c:e:r:g:m:i:j:s:q:t:v:f:B:K:")) != EOF) {
         switch (c) {
         case 'b':
             g_start_bit = atoi(optarg);
@@ -598,13 +896,20 @@ int main(int argc, char *argv[]) {
         case 'f':
             g_output_file = optarg;
             break;
+        case 'B':
+            bg_samples_per_pair = atoi(optarg);
+            if (bg_samples_per_pair <= 0) bg_samples_per_pair = 1;
+            break;
+        case 'K':
+            enable_bg_detection = atoi(optarg);
+            break;
         case ':':
             printf("Missing option.\n");
             exit(1);
             break;
         default:
             printf(
-                "Usage %s [-m <memory size in MB> | -g <memory size in GB>] [-i <number of outer loops>] [-j <number of inner loops>] [-s <expected sets>] [-q <sets for early quit>] [-t <threshold cycles>] [-f <output file>]\n",
+                "Usage %s [-m <memory size in MB> | -g <memory size in GB>] [-i <number of outer loops>] [-j <number of inner loops>] [-s <expected sets>] [-q <sets for early quit>] [-t <threshold cycles>] [-f <output file>] [-B <BG samples per pair>] [-K <enable BG detection 0|1>]\n",
                 argv[0]);
             exit(0);
             break;
@@ -635,6 +940,9 @@ int main(int argc, char *argv[]) {
     logDebug("CPU: %s\n", getCPUModel());
     logDebug("Number of reads: %lu x %lu\n", num_reads_outer, num_reads_inner)
     logDebug("Expected sets: %lu\n", expected_sets);
+    printf("Bank-group detection: %s (samples per pair=%d)\n",
+        enable_bg_detection ? "enabled" : "disabled",
+        bg_samples_per_pair);
 
     // affinity to core cpu_affinity
     if (cpu_affinity < 0) {
@@ -1064,6 +1372,42 @@ int main(int argc, char *argv[]) {
     }
     delete[] matrix;
 
+    std::vector<BGFunctionCandidate> bg_candidates;
+    if (enable_bg_detection) {
+        auto pair_timings = collect_pair_timings(sets, bg_samples_per_pair);
+        if (!pair_timings.empty()) {
+            BGThresholdInfo bg_info = compute_bg_threshold(pair_timings);
+            if (bg_info.valid) {
+                printf("BG timing clusters: low=%.2f high=%.2f threshold=%.2f\n",
+                       bg_info.low_center, bg_info.high_center, bg_info.threshold);
+                auto bg_labels = derive_bg_labels(pair_timings, bg_info, sets.size());
+                printf("BG labels per set: ");
+                std::map<int, int> label_hist;
+                for (size_t idx = 0; idx < bg_labels.size(); idx++) {
+                    printf("%zu:%d ", idx + 1, bg_labels[idx]);
+                    label_hist[bg_labels[idx]]++;
+                }
+                printf("\n");
+                printf("BG label histogram: ");
+                for (const auto& entry : label_hist) {
+                    printf("%d=>%d ", entry.first, entry.second);
+                }
+                printf("\n");
+                bg_candidates = rank_bg_functions(bg_labels, sets, functions,
+                                                  false_positives, duplicates);
+                print_bg_candidates(bg_candidates);
+            } else {
+                logWarning("%s", "Bank-group detection skipped: could not find distinct timing clusters.\n");
+            }
+        } else {
+            logWarning("%s", "Bank-group detection skipped: insufficient inter-set timing samples.\n");
+        }
+    } else {
+        printf("Bank-group detection disabled (use -K 1 to enable).\n");
+    }
+
+    const char* output_filename = g_output_file ? g_output_file : "map.txt";
+
 
     // display found functions
     for (int bits = 1; bits <= MAX_XOR_BITS; bits++) {
@@ -1093,8 +1437,8 @@ int main(int argc, char *argv[]) {
     }
 
     // Save bank mapping functions to file
-    const char* output_filename = g_output_file ? g_output_file : "map.txt";
     save_bank_functions(output_filename, functions, false_positives, duplicates, prob);
+    save_bank_group_functions(output_filename, bg_candidates);
     
     fprintf(stderr, "Finishing\n");
     exit(1);
