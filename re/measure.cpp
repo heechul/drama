@@ -623,6 +623,13 @@ int main(int argc, char *argv[]) {
     initPagemap();
     setupMapping();
 
+    // print the commandline used
+    printf("Command:");
+    for (int i = 0; i < argc; i++) {
+        printf(" %s", argv[i]);
+    }
+    printf("\n");
+
     logInfo("Mapping has %zu MB\n", mapping_size / 1024 / 1024);
 
     logDebug("CPU: %s\n", getCPUModel());
