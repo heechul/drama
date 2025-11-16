@@ -83,10 +83,26 @@ def main():
         print("No differences within bit window; widen PA_BIT_[LO,HI] or add more addresses.")
         return
     const_masks = orthogonal_complement(diffs)
-    if not const_masks:
+
+    # remove false positive bank bit that is always 0 or 1 across all addresses
+    filtered_masks = []
+    for m in const_masks:
+        is_const = True
+        for b in bits_of(m):
+            bit_val = (ref >> b) & 1
+            for pa in addrs[1:]:
+                if ((pa >> b) & 1) != bit_val:
+                    is_const = False
+                    break
+            if not is_const:
+                break
+        if not is_const:
+            filtered_masks.append(m)
+
+    if not filtered_masks:
         print("No nontrivial constant masks found.")
         return
-    for m in const_masks:
+    for m in filtered_masks:
         print(" ".join(f"{b}" for b in bits_of(m)))
 
 if __name__ == "__main__":
