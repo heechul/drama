@@ -1,4 +1,20 @@
-// A DRAM bank attacker which can target a subset DRAM banks
+// A DRAM bank-aware memory performance attacker, which can target a subset DRAM banks
+//
+// Author: Heechul Yun (heechul.yun@ku.edu)
+//
+// Credit: heavily borrowed from DRAMA by Pessl et al. (USENIX Security 2016).
+//
+// Compile:
+//    g++ -O2 -std=c++17 -o onebank_attacker onebank_attacker.cpp measure.cpp -lpthread
+// Usage:
+//   sudo ./onebank_attacker -m <memory size in MB> -s <expected sets> -l <target sets> -k <target addresses per set> -t <same-bank threshold cycles> -f <cache mode> -a <access type> -n <number of threads>
+// Example:
+//   sudo ./onebank_attacker -m 1024 -s 16 -l 1 -k 125 -t 300 -f 1 -a write -n 4
+//     - This example allocates 1GB memory, searches for 16 DRAM sets, selects 1 set to attack, with 125 addresses in the set,
+//       using 300 cycles as same-bank threshold, using write+clwb access mode, and 4 threads to access the addresses in the set.
+// Note:
+//   Adjust parameters as needed for your system.
+
 
 #include <stdio.h>
 #include <assert.h>
@@ -327,13 +343,21 @@ static void *access_all_thread(void *arg) {
     pointer *data = local_set->empty() ? nullptr : local_set->data();
     size_t n = local_set->size();
 
+    time_t t0 = utime();
+    long dur_in_us = 0;
     // main loop
     int cur_access = g_access_type;
     while (!g_quit_signal) {
         if (cur_access != g_access_type) {
+            dur_in_us = utime() - t0;
+            long long t_bytes = (long long)local_set->size() * *ctr * 64LL;
+            double mbps = (double)t_bytes / (double)dur_in_us * 1000000.0 / (1024.0*1024.0);
+            printf("Thread %d: iters: %ld  Bandwidth: %.1f MB/s\n", cpu_id, *ctr, mbps);
+
             cur_access = g_access_type;
             logInfo("Thread %d: switching access type to %s\n",
                     cpu_id, (cur_access == 1) ? "write" : "read");
+            t0 = utime();
             *ctr = 0; // reset counter
         }
         if (cur_access == 0) {
@@ -377,6 +401,11 @@ static void *access_all_thread(void *arg) {
         }
         (*ctr)++;
     }
+    dur_in_us = utime() - t0;
+    long long t_bytes = (long long)local_set->size() * (*ctr) * 64LL;
+    double mbps = (double)t_bytes / (double)dur_in_us * 1000000.0 / (1024.0*1024.0);
+    printf("Thread %d: iters: %ld  Bandwidth: %.1f MB/s\n", cpu_id, *ctr, mbps);
+
     return NULL;
 }
 
@@ -579,69 +608,67 @@ int main(int argc, char *argv[]) {
 
         if (samebank_threshold > 0) {
             found = samebank_threshold;
+        } else if (samebank_threshold == -2) {
+            // weighted k-means for 2 clusters using hist[] as weight
+            double cluster1 = (double)min;
+            double cluster2 = (double)max;
+            double prev_cluster1 = -1e9;
+            double prev_cluster2 = -1e9;
+            int max_iterations = 1000;
+            int iterations = 0;
+            const double EPS = 1e-6;
+
+            while ((fabs(cluster1 - prev_cluster1) > EPS || fabs(cluster2 - prev_cluster2) > EPS) &&
+                    iterations < max_iterations) {
+                prev_cluster1 = cluster1;
+                prev_cluster2 = cluster2;
+
+                int64_t sum1 = 0, sum2 = 0;
+                int64_t cnt1 = 0, cnt2 = 0;
+
+                for (int b = min; b <= max; b++) {
+                    size_t c = hist[b];
+                    if (c == 0) continue;
+                    int d1 = abs(b - cluster1);
+                    int d2 = abs(b - cluster2);
+                    if (d1 < d2) {
+                        sum1 += c * b;
+                        cnt1 += c;
+                    } else {
+                        sum2 += c * b;
+                        cnt2 += c;
+                    }
+                }
+
+                if (cnt1 > 0) cluster1 = (double)sum1 / cnt1;
+                if (cnt2 > 0) cluster2 = (double)sum2 / cnt2;
+
+                iterations++;
+
+                logDebug("K-means iteration %d: cluster1: %.2f cluster2: %.2f\n",
+                            iterations, cluster1, cluster2);
+            }
+
+            found = (int)(cluster2 - (cluster2 - cluster1) / 4.0); // biased towards cluster2
+            logDebug("K-means clustering found threshold at %d (cluster1: %d, cluster2: %d)\n",
+                        found, (int)cluster1, (int)cluster2);
         } else {
-            if (samebank_threshold == -2) {
-                // weighted k-means for 2 clusters using hist[] as weight
-                double cluster1 = (double)min;
-                double cluster2 = (double)max;
-                double prev_cluster1 = -1e9;
-                double prev_cluster2 = -1e9;
-                int max_iterations = 1000;
-                int iterations = 0;
-                const double EPS = 1e-6;
-
-                while ((fabs(cluster1 - prev_cluster1) > EPS || fabs(cluster2 - prev_cluster2) > EPS) &&
-                       iterations < max_iterations) {
-                    prev_cluster1 = cluster1;
-                    prev_cluster2 = cluster2;
-
-                    int64_t sum1 = 0, sum2 = 0;
-                    int64_t cnt1 = 0, cnt2 = 0;
-
-                    for (int b = min; b <= max; b++) {
-                        size_t c = hist[b];
-                        if (c == 0) continue;
-                        int d1 = abs(b - cluster1);
-                        int d2 = abs(b - cluster2);
-                        if (d1 < d2) {
-                            sum1 += c * b;
-                            cnt1 += c;
-                        } else {
-                            sum2 += c * b;
-                            cnt2 += c;
-                        }
-                    }
-
-                    if (cnt1 > 0) cluster1 = (double)sum1 / cnt1;
-                    if (cnt2 > 0) cluster2 = (double)sum2 / cnt2;
-
-                    iterations++;
-
-                    logDebug("K-means iteration %d: cluster1: %.2f cluster2: %.2f\n",
-                             iterations, cluster1, cluster2);
-                }
-
-                found = (int)(cluster2 - (cluster2 - cluster1) / 4.0); // biased towards cluster2
-                logDebug("K-means clustering found threshold at %d (cluster1: %d, cluster2: %d)\n",
-                         found, (int)cluster1, (int)cluster2);
-            } else {
-                // find a gap of at least 5 empty bins, starting from the right (high cycle counts)
-                for (int i = max; i >= min; i--) {
-                    if (hist[i] <= 1)
-                        empty++;
-                    else
-                        empty = 0;
-                    if (empty >= 5) {
-                        found = i + empty;
-                        break;
-                    }
+            // find a gap of at least 5 empty bins, starting from the right (high cycle counts)
+            for (int i = max; i >= min; i--) {
+                if (hist[i] <= 1)
+                    empty++;
+                else
+                    empty = 0;
+                if (empty >= 5) {
+                    found = i + empty;
+                    break;
                 }
             }
+        }
 
-            if (!found) {
-                logWarning("%s\n", "No set found, trying again...");
-                goto search_set;
-            }
+        if (!found) {
+            logWarning("%s\n", "No set found, trying again...");
+            goto search_set;
         }
 
         new_set.push_back(base); // this is needed. another bug in the original code
@@ -784,8 +811,8 @@ int main(int argc, char *argv[]) {
     // per-thread b/w
     for (int i = 0; i < num_threads; ++i) {
         long long t_bytes = (long long)local_sets[i].size() * counters[i] * 64LL;
-        double mbps = (double)t_bytes / (double)dur_in_us * 1000000.0 / (1024.0*1024.0);
-        printf("Thread %d: iters: %ld  Bandwidth: %.1f MB/s\n", i, counters[i], mbps);
+        // double mbps = (double)t_bytes / (double)dur_in_us * 1000000.0 / (1024.0*1024.0);
+        // printf("Thread %d: iters: %ld  Bandwidth: %.1f MB/s\n", i, counters[i], mbps);
         accessed_bytes += t_bytes;
     }
     // total b/w
