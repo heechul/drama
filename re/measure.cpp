@@ -522,7 +522,18 @@ int main(int argc, char *argv[]) {
             mapping_size = atol(optarg) * 1024 * 1024 * 1024;
             break;
         case 'm':
-            mapping_size = atol(optarg) * 1024 * 1024;
+            if (optarg[strlen(optarg)-1] == 'G' || optarg[strlen(optarg)-1] == 'g') {
+                // if the last character is 'G' or 'g', treat as GB
+                optarg[strlen(optarg)-1] = '\0'; // remove last char
+                mapping_size = atol(optarg) * 1024 * 1024 * 1024;
+            } else if (optarg[strlen(optarg)-1] == 'M' || optarg[strlen(optarg)-1] == 'm') {
+                // if the last character is 'M' or 'm', treat as MB
+                optarg[strlen(optarg)-1] = '\0'; // remove last char
+                mapping_size = atol(optarg) * 1024 * 1024;
+            } else {
+                // default: treat as MB
+                mapping_size = atol(optarg) * 1024 * 1024;
+            }
             break;
         case 'r':
             g_scale_factor = atoi(optarg);
