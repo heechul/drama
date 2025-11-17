@@ -191,27 +191,8 @@ long utime() {
 
 // ----------------------------------------------
 
-#if defined(__aarch64__)
-#define USE_TIMER_THREAD    0
-
-static volatile uint64_t counter = 0;
-static pthread_t count_thread;
-
-static void *countthread(void *dummy) {
-    uint64_t local_counter = 0;
-    while (1) {
-        local_counter++;
-        counter = local_counter;
-    }
-    return NULL;
-}
-#endif
-
 uint64_t rdtsc() {
-#if defined(__aarch64__) && USE_TIMER_THREAD==1
-    asm volatile ("DSB SY");	
-    return counter;
-#elif defined(__aarch64__) && USE_TIMER_THREAD==0
+#if defined(__aarch64__)
     uint64_t virtual_timer_value;
     asm volatile("isb");
     asm volatile("mrs %0, cntvct_el0" : "=r" (virtual_timer_value));
@@ -231,7 +212,7 @@ uint64_t rdtsc2() {
 #else
     uint32_t a, d;
     asm volatile ("rdtscp" : "=a" (a), "=d" (d) : : "rcx", "memory");
-    // asm volatile ("cpuid"::: "rax", "rbx", "rcx", "rdx", "memory");
+    asm volatile ("cpuid"::: "rax", "rbx", "rcx", "rdx", "memory");
     return ((uint64_t)d << 32) | a;
 #endif
 }
@@ -731,19 +712,6 @@ int main(int argc, char *argv[]) {
     base_phys = ait->second;
 
     logDebug("Address pool size: %lu\n", addr_pool.size());
-
-#if defined(__aarch64__) && USE_TIMER_THREAD==1
-    int rr = pthread_create(&count_thread, 0, countthread , 0);
-    if (rr != 0) {
-        return -1;
-    }
-    logDebug("%s\n", "Waiting the counter thread...");
-    while(counter == 0) {
-        asm volatile("DSB SY");
-    }
-    logDebug("Done: %ld\n", counter);    
-#endif
-
 
     // row hit timing
     t = getTiming(base, base + 64, num_reads_outer, num_reads_inner);
