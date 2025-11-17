@@ -668,7 +668,7 @@ int main(int argc, char *argv[]) {
             // advance iterator
             pool_it++;
         }
-        printf("(%lu)\n", measure_count);
+        printf("Measured %lu addresses\n", measure_count);
 
         // identify sets -> must be on the right, separated in the histogram
         std::vector <addrpair> new_set; // virtual and physical address pairs of the identified set
@@ -708,79 +708,77 @@ int main(int argc, char *argv[]) {
 
         if (samebank_threshold > 0) {
             found = samebank_threshold;
+        } else if (samebank_threshold == -2) {
+            // weighted k-means for 2 clusters using hist[] as weight
+            double cluster1 = (double)min;
+            double cluster2 = (double)max;
+            double distance1 = 0, distance2 = 0; // average distance to cluster center
+            double prev_cluster1 = -1e9;
+            double prev_cluster2 = -1e9;
+            int max_iterations = 1000;
+            int iterations = 0;
+            const double EPS = 1e-6;
+
+            while ((fabs(cluster1 - prev_cluster1) > EPS || fabs(cluster2 - prev_cluster2) > EPS) &&
+                    iterations < max_iterations) {
+                prev_cluster1 = cluster1;
+                prev_cluster2 = cluster2;
+
+                int64_t sum1 = 0, sum2 = 0;
+                int64_t cnt1 = 0, cnt2 = 0;
+                int64_t dis1 = 0, dis2 = 0;
+
+                for (int b = min; b <= max; b++) {
+                    size_t c = hist[b];
+                    if (c == 0) continue;
+                    double d1 = fabs((double)b - cluster1);
+                    double d2 = fabs((double)b - cluster2);
+                    if (d1 < d2) {
+                        sum1 += c * b;
+                        cnt1 += c;
+                        dis1 += c * d1;
+                    } else {
+                        sum2 += c * b;
+                        cnt2 += c;
+                        dis2 += c * d2;
+                    }
+                }
+
+                if (cnt1 > 0) {
+                    cluster1 = (double)sum1 / cnt1;
+                    distance1 = (double)dis1 / cnt1;
+                }
+                if (cnt2 > 0) {
+                    cluster2 = (double)sum2 / cnt2;
+                    distance2 = (double)dis2 / cnt2;
+                }
+
+                iterations++;
+
+                logDebug("K-means iteration %d: cluster1: %.2f (+- %.2f) cluster2: %.2f (+- %.2f)\n",
+                            iterations, cluster1, distance1, cluster2, distance2);
+            }
+
+            found = (int)(cluster2 - (cluster2 - cluster1) / 4.0); // biased towards cluster2
+            logDebug("K-means clustering found threshold at %d (cluster1: %d, cluster2: %d)\n",
+                        found, (int)cluster1, (int)cluster2);
         } else {
-            if (samebank_threshold == -2) {
-                // weighted k-means for 2 clusters using hist[] as weight
-                double cluster1 = (double)min;
-                double cluster2 = (double)max;
-                double distance1 = 0, distance2 = 0; // average distance to cluster center
-                double prev_cluster1 = -1e9;
-                double prev_cluster2 = -1e9;
-                int max_iterations = 1000;
-                int iterations = 0;
-                const double EPS = 1e-6;
-
-                while ((fabs(cluster1 - prev_cluster1) > EPS || fabs(cluster2 - prev_cluster2) > EPS) &&
-                       iterations < max_iterations) {
-                    prev_cluster1 = cluster1;
-                    prev_cluster2 = cluster2;
-
-                    int64_t sum1 = 0, sum2 = 0;
-                    int64_t cnt1 = 0, cnt2 = 0;
-                    int64_t dis1 = 0, dis2 = 0;
-
-                    for (int b = min; b <= max; b++) {
-                        size_t c = hist[b];
-                        if (c == 0) continue;
-                        double d1 = fabs((double)b - cluster1);
-                        double d2 = fabs((double)b - cluster2);
-                        if (d1 < d2) {
-                            sum1 += c * b;
-                            cnt1 += c;
-                            dis1 += c * d1;
-                        } else {
-                            sum2 += c * b;
-                            cnt2 += c;
-                            dis2 += c * d2;
-                        }
-                    }
-
-                    if (cnt1 > 0) {
-                        cluster1 = (double)sum1 / cnt1;
-                        distance1 = (double)dis1 / cnt1;
-                    }
-                    if (cnt2 > 0) {
-                        cluster2 = (double)sum2 / cnt2;
-                        distance2 = (double)dis2 / cnt2;
-                    }
-
-                    iterations++;
-
-                    logDebug("K-means iteration %d: cluster1: %.2f (+- %.2f) cluster2: %.2f (+- %.2f)\n",
-                             iterations, cluster1, distance1, cluster2, distance2);
-                }
-
-                found = (int)(cluster2 - (cluster2 - cluster1) / 4.0); // biased towards cluster2
-                logDebug("K-means clustering found threshold at %d (cluster1: %d, cluster2: %d)\n",
-                         found, (int)cluster1, (int)cluster2);
-            } else {
-                // find a gap of at least 5 empty bins, starting from the right (high cycle counts)
-                for (int i = max; i >= min; i--) {
-                    if (hist[i] <= 1)
-                        empty++;
-                    else
-                        empty = 0;
-                    if (empty >= 5) {
-                        found = i + empty;
-                        break;
-                    }
+            // find a gap of at least 5 empty bins, starting from the right (high cycle counts)
+            for (int i = max; i >= min; i--) {
+                if (hist[i] <= 1)
+                    empty++;
+                else
+                    empty = 0;
+                if (empty >= 5) {
+                    found = i + empty;
+                    break;
                 }
             }
+        }
 
-            if (!found) {
-                logWarning("%s\n", "No set found, trying again...");
-                goto search_set;
-            }
+        if (!found) {
+            logWarning("%s\n", "No set found, trying again...");
+            goto search_set;
         }
 
         new_set.push_back(std::make_pair(base, base_phys)); // this is needed. another bug in the original code
@@ -795,7 +793,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
-	    logInfo("found(cycles): %d newset_sz: %lu (expected_sz: %lu) pool_sz: %lu\n",
+	    printf("found(cycles): %d newset_sz: %lu (expected_sz: %lu) pool_sz: %lu\n",
                  found, new_set.size(), tries/expected_sets, addr_pool.size());
 
         if (new_set.size() <= tries / expected_sets * 0.1) {
@@ -848,7 +846,7 @@ int main(int argc, char *argv[]) {
             break;
         }
     }
-    logDebug("Done measuring. found_sets: %d found_siblings: %d\n",
+    printf("Done measuring. found_sets: %d found_siblings: %d\n",
              found_sets, found_siblings);
 
     for (int set = 0; set < sets.size(); set++) {
@@ -992,7 +990,7 @@ int main(int argc, char *argv[]) {
 
     // display found functions
     for (int bits = 1; bits <= MAX_XOR_BITS; bits++) {
-	printf("Bits: %d, sz=%d\n", bits, (int)functions[bits].size());
+	    logInfo("Bits: %d, sz=%d\n", bits, (int)functions[bits].size());
 	
         for (int i = 0; i < functions[bits].size(); i++) {
             bool show = true;
