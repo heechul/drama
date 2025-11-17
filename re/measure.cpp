@@ -226,8 +226,7 @@ static inline void clflush(volatile void *p) {
 uint64_t getTiming(pointer first, pointer second) {
     size_t min_res = (-1ull);
 
-    for (int i = 0; i < num_reads_outer; i++) {
-        size_t number_of_reads = num_reads_inner;
+    for (size_t i = 0; i < num_reads_outer; i++) {
         volatile size_t *f = (volatile size_t *) first;
         volatile size_t *s = (volatile size_t *) second;
 
@@ -238,7 +237,7 @@ uint64_t getTiming(pointer first, pointer second) {
 
         size_t t0 = rdtsc();
 
-        while (number_of_reads-- > 0) {
+        for (size_t j = 0; j < num_reads_inner; j++) {
             *f;
             *s;
             clflush(f);
