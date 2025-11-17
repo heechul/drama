@@ -1,9 +1,7 @@
-#include <bitset>
 #include <iostream>
 #include <stdio.h>
 #include <assert.h>
 #include <fcntl.h>
-#include <linux/kernel-page-flags.h>
 #include <stdint.h>
 #include <sys/sysinfo.h>
 #include <sys/mman.h>
@@ -14,16 +12,12 @@
 #include <map>
 #include <list>
 #include <utility>
-#include <fstream>
 #include <set>
 #include <algorithm>
 #include <sys/time.h>
 #include <sys/resource.h>
-#include <sstream>
 #include <iterator>
 #include <math.h>
-#include <signal.h>
-#include <sys/ioctl.h>
 #include "measure.h"
 
 
@@ -59,13 +53,6 @@ int g_pagemap_fd = -1;
 void *mapping;
 
 // ----------------------------------------------
-size_t getPhysicalMemorySize() {
-    struct sysinfo info;
-    sysinfo(&info);
-    return (size_t) info.totalram * (size_t) info.mem_unit;
-}
-
-// ----------------------------------------------
 const char *getCPUModel() {
     static char model[64];
     char *buffer = NULL;
@@ -92,8 +79,6 @@ const char *getCPUModel() {
 }
 
 // ----------------------------------------------
-uint64_t phy_start_addr;
-
 void setupMapping() {
  
     // try 1GB huge page
@@ -156,37 +141,8 @@ void initPagemap() {
 }
 
 // ----------------------------------------------
-long utime() {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-
-    return (tv.tv_sec) * 1000000 + (tv.tv_usec);
-}
-
-
-// ----------------------------------------------
-
-#if defined(__aarch64__)
-#define USE_TIMER_THREAD    0
-
-static volatile uint64_t counter = 0;
-static pthread_t count_thread;
-
-static void *countthread(void *dummy) {
-    uint64_t local_counter = 0;
-    while (1) {
-        local_counter++;
-        counter = local_counter;
-    }
-    return NULL;
-}
-#endif
-
 uint64_t rdtsc() {
-#if defined(__aarch64__) && USE_TIMER_THREAD==1
-    asm volatile ("DSB SY");	
-    return counter;
-#elif defined(__aarch64__) && USE_TIMER_THREAD==0
+#if defined(__aarch64__)
     uint64_t virtual_timer_value;
     asm volatile("isb");
     asm volatile("mrs %0, cntvct_el0" : "=r" (virtual_timer_value));
@@ -319,13 +275,8 @@ std::vector<double> prob_function(std::vector <pointer> masks, int align_bit) {
             for (size_t a = 0; a < sets[set].size(); a++) {
                 if (apply_bitmask(sets[set][a].second, mask)) ones++;
             }
-#if 0
-            // if majority of addresses in the set have parity 1, count this set as 1
-            int parity = (ones * 2 >= (int)sets[set].size()) ? 1 : 0;
-#else
             // all addresses in the set must have parity 1 to count this set as 1
             int parity = (ones == (int)sets[set].size()) ? 1 : 0;
-#endif
             if (parity) count++;
             used_sets++;
         }
@@ -610,13 +561,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // check mapping size
-    // if (mapping_size > getPhysicalMemorySize() / 2) {
-    //     logWarning("Mapping size is too large, reducing to %zu MB\n",
-    //                getPhysicalMemorySize() / 2 / 1024 / 1024);
-    //     mapping_size = getPhysicalMemorySize() / 2;
-    // }
-
     srand(time(NULL));
     g_page_size = sysconf(_SC_PAGESIZE);
     initPagemap();
@@ -668,29 +612,13 @@ int main(int argc, char *argv[]) {
     while (int cur_count = addr_pool.size() < tries) {
         getRandomAddress(&second, &second_phys);
         addr_pool.insert(std::make_pair(second, second_phys));
-        // if (cur_count != addr_pool.size())
-        //     logDebug("addr_pool[%ld]: 0x%0lx\n", addr_pool.size(), second_phys);
     }
 
     auto ait = addr_pool.begin();
-    // std::advance(ait, rand() % addr_pool.size());
     base = ait->first;
     base_phys = ait->second;
 
     logDebug("Address pool size: %lu\n", addr_pool.size());
-
-#if defined(__aarch64__) && USE_TIMER_THREAD==1
-    int rr = pthread_create(&count_thread, 0, countthread , 0);
-    if (rr != 0) {
-        return -1;
-    }
-    logDebug("%s\n", "Waiting the counter thread...");
-    while(counter == 0) {
-        asm volatile("DSB SY");
-    }
-    logDebug("Done: %ld\n", counter);    
-#endif
-
 
     // row hit timing
     t = getTiming(base, base + 64);
@@ -764,8 +692,6 @@ int main(int argc, char *argv[]) {
         double scale_v = (double) (100.0)
                          / (max_v > 0 ? (double) max_v : 100.0);
         assert(scale_v >= 0);
-        // while (hist[++min] <= 1);
-        // while (hist[--max] <= 1);
 
         // print histogram
         for (size_t i = min; i <= max; i++) {
@@ -1096,7 +1022,4 @@ int main(int argc, char *argv[]) {
     save_bank_functions(output_filename, functions, false_positives, duplicates, prob);
     
     fprintf(stderr, "Finishing\n");
-    exit(1);
-    return 0;
-
 }
