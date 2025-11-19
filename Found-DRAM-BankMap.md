@@ -46,12 +46,12 @@
 ## Intel Intel(R) Xeon(R) CPU E5-2608L v3 (Haswell, 4xdimms, 1 dimm = DDR4 4GB)
 
 	Inferred mapping:
-	22
+	6 22
 	19 23
 	20 24
 	21 25
 	8 13 15 17 27
-	7 12 14 16 18 26
+	6 7 12 14 16 18 26
 
 ## Raspberry Pi Zero 2 (Cortex-A53, LPDDR2, 512MB)
 
