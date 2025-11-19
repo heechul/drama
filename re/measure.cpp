@@ -52,6 +52,9 @@ std::map<int, std::vector<pointer> > functions;
 int g_pagemap_fd = -1;
 void *mapping;
 
+ssize_t g_lower_address_limit = 0; // no limit
+ssize_t g_upper_address_limit = -1; // no limit
+
 // ----------------------------------------------
 const char *getCPUModel() {
     static char model[64];
@@ -507,7 +510,7 @@ int main(int argc, char *argv[]) {
     int cpu_affinity = -1;
     int quit_sets = -1; // number of sets to quit early
 
-    while ((c = getopt(argc, argv, "b:c:e:r:g:m:i:j:s:q:t:v:f:")) != EOF) {
+    while ((c = getopt(argc, argv, "b:c:e:r:g:m:i:j:s:q:t:v:f:L:U:")) != EOF) {
         switch (c) {
         case 'b':
             g_start_bit = atoi(optarg);
@@ -534,6 +537,14 @@ int main(int argc, char *argv[]) {
                 // default: treat as MB
                 mapping_size = atol(optarg) * 1024 * 1024;
             }
+            break;
+        case 'L':
+            // lower phsyical address limit for searching addresses
+            g_lower_address_limit = strtol(optarg, nullptr, 0);
+            break;
+        case 'U':
+            // upper physical address limit for searching addresses
+            g_upper_address_limit = strtol(optarg, nullptr, 0);
             break;
         case 'r':
             g_scale_factor = atoi(optarg);
@@ -585,10 +596,12 @@ int main(int argc, char *argv[]) {
     printf("\n");
 
     logInfo("Mapping has %zu MB\n", mapping_size / 1024 / 1024);
-
-    logDebug("CPU: %s\n", getCPUModel());
-    logDebug("Number of reads: %lu x %lu\n", num_reads_outer, num_reads_inner)
-    logDebug("Expected sets: %lu\n", expected_sets);
+    logInfo("CPU: %s\n", getCPUModel());
+    logInfo("Number of reads: %lu x %lu\n", num_reads_outer, num_reads_inner)
+    logInfo("Expected sets: %lu\n", expected_sets);
+    logInfo("Physical address bits: %d to %d\n", g_start_bit, g_end_bit);
+    logInfo("Scale factor: %d\n", g_scale_factor);
+    logInfo("Physical address range: 0x%lx--0x%lx\n", g_lower_address_limit, g_upper_address_limit);
 
     // affinity to core cpu_affinity
     if (cpu_affinity < 0) {
@@ -622,6 +635,12 @@ int main(int argc, char *argv[]) {
     // build address pool
     while (int cur_count = addr_pool.size() < tries) {
         getRandomAddress(&second, &second_phys);
+        if (g_lower_address_limit > 0 &&
+            second_phys < g_lower_address_limit)
+            continue;
+        if (g_upper_address_limit > 0 &&
+            second_phys > g_upper_address_limit)
+            continue;
         addr_pool.insert(std::make_pair(second, second_phys));
     }
 
@@ -807,7 +826,7 @@ int main(int argc, char *argv[]) {
              found_sets, found_siblings);
 
     for (int set = 0; set < sets.size(); set++) {
-        logInfo("Set %d: count: %ld\n",
+        logDebug("Set %d: count: %ld\n",
                 set + 1, sets[set].size());
         char filename[100];
         sprintf(filename, "set%d.txt", set + 1);
@@ -947,7 +966,7 @@ int main(int argc, char *argv[]) {
 
     // display found functions
     for (int bits = 1; bits <= MAX_XOR_BITS; bits++) {
-	    logInfo("Bits: %d, sz=%d\n", bits, (int)functions[bits].size());
+	    logDebug("Bits: %d, sz=%d\n", bits, (int)functions[bits].size());
 	
         for (int i = 0; i < functions[bits].size(); i++) {
             bool show = true;
