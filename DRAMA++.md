@@ -1,20 +1,25 @@
-# DRAMA++: A fast and robust DRAM address map reverse engineering tool.
+# DRAMA++: A fast and robust DRAM address-map reverse-engineering tool
 
-The code is based on DRAMA (https://github.com/isec-tugraz/drama), but it has made the following improvements.
+This code is based on [DRAMA](https://github.com/isec-tugraz/drama), and it makes the following improvements:
 
-- added support for ARM64 architecture
-- implemented a faster GF(2) solver with a polynomial time complexity (original version has an exponetial time complexity)
-- fixed a logic bug, which prevented considering high-order physical address bits
-- fixed a logic bug, which leaves the 'base' address remaining in the address pool when it should have been added to the set.
-- improved timing measurement
-- additional changes for improved functionality, usability and portability
+- Added support for the ARM64 architecture.
+- Implemented a faster GF(2) solver with polynomial-time complexity (the original version has exponential-time complexity).
+- Fixed a logical bug that prevented high-order physical address bits from being considered.
+- Fixed a logical bug that left the `base` address in the address pool when it should have been added to the set.
+- Improved timing measurements.
+- Additional changes for improved functionality, usability, and portability.
 
-To see the all changed, do the following:
+To see all changes, run:
 
-    git diff c5c83471...HEAD re/measure.cpp
+```
+git diff c5c83471...HEAD re/measure.cpp
+```
 
-## Speed/correctness comparison
+## Speed Comparison
 
-    Platform        DRAMA       DRAMA++
-    ------------------------------------
-    i5-2520M        3m34s (X)   0.84s (O)
+
+| Platform              |   DRAMA    |  DRAMA++ |
+|-----------------------|------------|----------|
+| Intel i5-2520M        |   3m34s    |  0.84s   |
+| Intel Xeon E5-2608L v3|   >30m     |  2.64s   |
+| Raspberry Pi 4        |    N/A     |  0.58s   |
