@@ -80,7 +80,7 @@ const char *getCPUModel() {
 
 // ----------------------------------------------
 void setupMapping() {
- 
+
     // try 1GB huge page
     mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
                     MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE |
@@ -147,7 +147,7 @@ uint64_t rdtsc() {
     asm volatile("isb");
     asm volatile("mrs %0, cntvct_el0" : "=r" (virtual_timer_value));
     return virtual_timer_value;
-#else    
+#else
     uint64_t a, d;
     asm volatile ("xor %%rax, %%rax\n" "cpuid"::: "rax", "rbx", "rcx", "rdx");
     asm volatile ("rdtscp" : "=a" (a), "=d" (d) : : "rcx");
@@ -462,7 +462,7 @@ void save_bank_functions(const char* filename,
     for (int bits = 1; bits <= MAX_XOR_BITS; bits++) {
         for (int i = 0; i < functions.at(bits).size(); i++) {
             bool show = true;
-    
+
             // Skip false positives
             for (int fp = 0; fp < false_positives.size(); fp++) {
                 if ((functions.at(bits)[i] & false_positives[fp]) == false_positives[fp]) {
@@ -821,7 +821,7 @@ int main(int argc, char *argv[]) {
         }
         fclose(f);
     }
-    
+
     // try to find a xor function
     std::map<int, std::vector<double> > prob;
     for (int bits = 1; bits <= MAX_XOR_BITS; bits++) {
@@ -948,7 +948,7 @@ int main(int argc, char *argv[]) {
     // display found functions
     for (int bits = 1; bits <= MAX_XOR_BITS; bits++) {
 	    logInfo("Bits: %d, sz=%d\n", bits, (int)functions[bits].size());
-	
+
         for (int i = 0; i < functions[bits].size(); i++) {
             bool show = true;
             for (int fp = 0; fp < false_positives.size(); fp++) {
@@ -975,6 +975,6 @@ int main(int argc, char *argv[]) {
     // Save bank mapping functions to file
     const char* output_filename = g_output_file ? g_output_file : "map.txt";
     save_bank_functions(output_filename, functions, false_positives, duplicates, prob);
-    
+
     fprintf(stderr, "Finishing\n");
 }
