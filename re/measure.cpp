@@ -507,6 +507,13 @@ int main(int argc, char *argv[]) {
     int cpu_affinity = -1;
     int quit_sets = -1; // number of sets to quit early
 
+    // print the commandline used
+    printf("Command:");
+    for (int i = 0; i < argc; i++) {
+        printf(" %s", argv[i]);
+    }
+    printf("\n");
+
     while ((c = getopt(argc, argv, "b:c:e:r:g:m:i:j:s:q:t:v:f:")) != EOF) {
         switch (c) {
         case 'b':
@@ -576,13 +583,6 @@ int main(int argc, char *argv[]) {
     g_page_size = sysconf(_SC_PAGESIZE);
     initPagemap();
     setupMapping();
-
-    // print the commandline used
-    printf("Command:");
-    for (int i = 0; i < argc; i++) {
-        printf(" %s", argv[i]);
-    }
-    printf("\n");
 
     logInfo("Mapping has %zu MB\n", mapping_size / 1024 / 1024);
 
