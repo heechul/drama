@@ -31,12 +31,11 @@ make
 
 This produces the `measure` binary in `re/`.
 
-### Basic Run
+### Options
 
 Measure DRAM bank functions and save them to `map.txt`:
 
 ```
-cd re
 ./measure [-m <memory size in MB> | -g <memory size in GB>] [-i <number of outer loops>] [-j <number of inner loops>] [-s <expected sets>] [-q <sets for early quit>] [-t <threshold cycles>] [-f <output file>]
 
 ```
@@ -65,13 +64,16 @@ Notes:
 sudo ./measure -s 16 -g 1
 ```
 
-Also see: [Found-DRAM-BankMap.md](./Found-DRAM-BankMap.md) for examples of discovered DRAM bank-mapping functions.
+## DRAM Bank Map Database
+See: [Found-DRAM-BankMap.md](./Found-DRAM-BankMap.md) for examples of discovered DRAM bank-mapping functions.
 
 ## Speed Comparison
 
 
 | Platform              |   DRAMA    |  DRAMA++ |
 |-----------------------|------------|----------|
-| Intel i5-2520M        |   3m34s    |  0.84s   |
-| Intel Xeon E5-2608L v3|   17m48s   |  2.64s   |
-| Raspberry Pi 4        |    N/A     |  0.58s   |
+| Xeon E3-1220 v5 (64 banks)     |   54.5s<sup>1</sup>    |  3.4s<sup>2</sup>    | 
+| Raspberry Pi 4 (8 banks)       |    N/A     |  0.6s    |
+
+- <sup>1</sup> Used DRAMA option: "-s 64 -n 10" (the default, n=5000, took too long, +10min, and couldn't find the map.)
+- <sup>2</sup> Used DRAMA++ option: "-s 64" (manually setting the threshold, e.g., "-t 300", would make it even faster and more reliable)
