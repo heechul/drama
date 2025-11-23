@@ -31,7 +31,7 @@ make
 
 This produces the `measure` binary in `re/`.
 
-### Options
+### Run
 
 Measure DRAM bank functions and save them to `map.txt`:
 
