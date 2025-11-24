@@ -7,7 +7,7 @@ This code is based on [DRAMA](https://github.com/isec-tugraz/drama), and it make
 - Fixed a logical bug that prevented high-order physical address bits from being considered.
 - Fixed a logical bug that left the `base` address in the address pool when it should have been added to the set.
 - Improved timing measurements.
-- Additional changes for improved functionality, usability, and portability.
+- Additional changes for improved functionality, usability, reliability, and portability.
 
 To see all changes, run:
 
