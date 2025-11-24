@@ -41,7 +41,7 @@ Measure DRAM bank functions and save them to `map.txt`:
 ```
 
 Notes:
-- `-s`: expected sets = DIMMs × channels × ranks × banks (e.g., 1×1×2×8 = 16).
+- `-s`: expected sets = DIMMs × ranks × banks (e.g., 1×1×2×8 = 16).
 - `-m`/`-g`: memory to map in MB/GB (e.g., `-g 1` for 1 GB).
 - `-c`: pin to a CPU core (you can also use `taskset`).
 - `-i`/`-j`: outer/inner loop counts; ARM64 may benefit from a higher `-j`.
