@@ -20,7 +20,8 @@ git diff c5c83471...HEAD re/measure.cpp
 
 - Linux (x86-64 or ARM64) with a recent kernel.
 - `g++` and `make` installed.
-- Permission to read `/proc/self/pagemap` (often requires `sudo`). The tool attempts huge pages first and falls back to regular pages if unavailable.
+- Permission to read `/proc/self/pagemap` (often requires `sudo`).
+- The tool attempts huge pages first and falls back to regular pages if unavailable.
 
 ### Build
 
